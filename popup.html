@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500&family=Geist:wght@400;600&display=swap');
+
+    :root {
+      --bg: #ffffff;
+      --fg: #000000;
+      --accents-1: #fafafa;
+      --accents-2: #eaeaea;
+      --accents-3: #999999;
+      --accents-4: #666666;
+      --selection: #0070f3;
+      --radius: 6px;
+    }
+
+    * {
+      box-sizing: border-box;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body {
+      width: 280px;
+      margin: 0;
+      padding: 24px;
+      font-family: 'Geist', -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--fg);
+    }
+
+    .header {
+      margin-bottom: 24px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      background: var(--fg);
+      border-radius: 50%;
+    }
+
+    h1 {
+      font-size: 14px;
+      font-weight: 600;
+      margin: 0;
+      letter-spacing: -0.02em;
+      text-transform: uppercase;
+    }
+
+    p {
+      color: var(--accents-4);
+      font-size: 13px;
+      line-height: 1.5;
+      margin: 0;
+    }
+
+    .action-zone {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    button {
+      appearance: none;
+      width: 100%;
+      height: 40px;
+      background: var(--fg);
+      color: var(--bg);
+      border: 1px solid var(--fg);
+      border-radius: var(--radius);
+      font-family: 'Geist', sans-serif;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    button:hover:not(:disabled) {
+      background: var(--bg);
+      color: var(--fg);
+    }
+
+    button:active:not(:disabled) {
+      transform: scale(0.98);
+    }
+
+    button:disabled {
+      background: var(--accents-2);
+      border-color: var(--accents-2);
+      color: var(--accents-3);
+      cursor: not-allowed;
+    }
+
+    #status {
+      font-family: 'Geist Mono', monospace;
+      font-size: 11px;
+      color: var(--accents-4);
+      text-align: center;
+      min-height: 14px;
+      margin-top: 4px;
+    }
+
+    .divider {
+      height: 1px;
+      background: var(--accents-2);
+      margin: 20px 0;
+    }
+
+    .meta {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11px;
+      color: var(--accents-3);
+    }
+
+    .tag {
+      padding: 2px 6px;
+      background: var(--accents-1);
+      border: 1px solid var(--accents-2);
+      border-radius: 4px;
+      font-family: 'Geist Mono', monospace;
+    }
+
+    #backend-off {
+      font-size: 12px;
+      color: #c53030;
+      background: #fff5f5;
+      border: 1px solid #feb2b2;
+      border-radius: var(--radius);
+      padding: 10px 12px;
+      margin-bottom: 12px;
+    }
+
+    #backend-off code {
+      font-family: 'Geist Mono', monospace;
+      font-size: 11px;
+      background: rgba(0,0,0,0.06);
+      padding: 1px 4px;
+      border-radius: 3px;
+    }
+
+    #preview-section {
+      display: none;
+      margin-top: 12px;
+    }
+
+    #preview-section.visible {
+      display: block;
+    }
+
+    .preview-title {
+      font-size: 12px;
+      font-weight: 600;
+      margin-bottom: 8px;
+      color: var(--accents-4);
+    }
+
+    #preview-list {
+      max-height: 200px;
+      overflow-y: auto;
+      font-size: 11px;
+      font-family: 'Geist Mono', monospace;
+      background: var(--accents-1);
+      border: 1px solid var(--accents-2);
+      border-radius: var(--radius);
+      padding: 8px;
+      margin-bottom: 10px;
+    }
+
+    .preview-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 4px 0;
+      border-bottom: 1px solid var(--accents-2);
+    }
+
+    .preview-row:last-child {
+      border-bottom: none;
+    }
+
+    .preview-row.editing {
+      flex-wrap: wrap;
+    }
+
+    .preview-key {
+      color: var(--accents-4);
+      flex-shrink: 0;
+      max-width: 100px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .preview-val {
+      color: var(--fg);
+      text-align: right;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 120px;
+    }
+
+    .preview-row .edit-btn {
+      width: auto;
+      height: 24px;
+      min-width: 36px;
+      padding: 0 8px;
+      font-size: 10px;
+      flex-shrink: 0;
+    }
+
+    .preview-row input.edit-input {
+      width: 100%;
+      min-width: 0;
+      margin-top: 4px;
+      padding: 6px 8px;
+      font-size: 11px;
+      font-family: 'Geist Mono', monospace;
+      border: 1px solid var(--accents-2);
+      border-radius: 4px;
+    }
+
+    .preview-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .preview-actions button {
+      flex: 1;
+    }
+
+    button.secondary {
+      background: var(--bg);
+      color: var(--fg);
+      border: 1px solid var(--accents-2);
+    }
+
+    button.secondary:hover:not(:disabled) {
+      background: var(--accents-1);
+    }
+
+    .action-zone.hide-main .main-action {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="brand">
+      <div class="dot"></div>
+      <h1>Autofill.Ai</h1>
+    </div>
+    <p>Detect fields and populate forms with precision.</p>
+  </div>
+
+  <div id="backend-off" style="display: none;">Cannot reach server.</div>
+
+  <div class="action-zone" id="action-zone">
+    <div class="main-action">
+      <button id="fill">Execute Autofill</button>
+      <div id="status"></div>
+    </div>
+    <div id="preview-section" class="preview-section">
+      <div class="preview-title">Preview before filling</div>
+      <div id="preview-list"></div>
+      <div class="preview-actions">
+        <button id="cancel-preview" class="secondary">Cancel</button>
+        <button id="confirm-fill">Fill form</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="meta">
+    <span>v0.1.0</span>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
