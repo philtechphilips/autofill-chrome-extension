@@ -304,6 +304,167 @@
       color: var(--bg);
       font-weight: 500;
     }
+
+    .profile-section {
+      margin-bottom: 12px;
+    }
+
+    .profile-section .fill-mode-label {
+      margin-bottom: 6px;
+    }
+
+    .profile-section select {
+      width: 100%;
+      padding: 8px 10px;
+      font-size: 12px;
+      font-family: inherit;
+      border: 1px solid var(--accents-2);
+      border-radius: var(--radius);
+      background: var(--bg);
+      color: var(--fg);
+    }
+
+    .profile-mode {
+      margin-top: 8px;
+      display: flex;
+      gap: 0;
+      border: 1px solid var(--accents-2);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+
+    .profile-mode label {
+      flex: 1;
+      margin: 0;
+      padding: 6px 8px;
+      font-size: 11px;
+      cursor: pointer;
+      background: var(--bg);
+      color: var(--accents-4);
+      border-right: 1px solid var(--accents-2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .profile-mode label:last-child { border-right: none; }
+    .profile-mode input { position: absolute; opacity: 0; pointer-events: none; }
+    .profile-mode label:has(input:checked) {
+      background: var(--fg);
+      color: var(--bg);
+      font-weight: 500;
+    }
+
+    .profile-section.hide-profile-mode .profile-mode { display: none; }
+
+    .manage-profiles-btn {
+      margin-top: 6px;
+      font-size: 11px;
+      color: var(--accents-4);
+      background: none;
+      border: none;
+      padding: 0;
+      height: auto;
+      cursor: pointer;
+      text-decoration: underline;
+    }
+
+    .manage-profiles-btn:hover { color: var(--fg); }
+
+    #manage-profiles-panel {
+      display: none;
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid var(--accents-2);
+    }
+
+    #manage-profiles-panel.visible { display: block; }
+
+    .profile-list {
+      margin-bottom: 12px;
+      max-height: 120px;
+      overflow-y: auto;
+    }
+
+    .profile-list-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 8px;
+      font-size: 12px;
+      border-radius: var(--radius);
+      margin-bottom: 4px;
+      background: var(--accents-1);
+      border: 1px solid var(--accents-2);
+    }
+
+    .profile-list-item button {
+      width: auto;
+      height: 28px;
+      min-width: 28px;
+      padding: 0 8px;
+      font-size: 11px;
+      margin-left: 4px;
+    }
+
+    .profile-form label {
+      display: block;
+      font-size: 11px;
+      color: var(--accents-4);
+      margin-bottom: 2px;
+    }
+
+    .profile-form input {
+      width: 100%;
+      padding: 6px 8px;
+      margin-bottom: 8px;
+      font-size: 12px;
+      border: 1px solid var(--accents-2);
+      border-radius: var(--radius);
+      box-sizing: border-box;
+    }
+
+    .profile-form-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .profile-form-actions button { flex: 1; }
+
+    #privacy-notice {
+      font-size: 11px;
+      color: var(--accents-4);
+      background: var(--accents-1);
+      border: 1px solid var(--accents-2);
+      border-radius: var(--radius);
+      padding: 10px 12px;
+      margin-bottom: 12px;
+    }
+
+    #privacy-notice p {
+      margin: 0 0 8px 0;
+      line-height: 1.45;
+    }
+
+    #privacy-notice a {
+      color: var(--fg);
+      text-decoration: underline;
+    }
+
+    #privacy-notice .privacy-actions {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    #privacy-notice .privacy-got-it {
+      font-size: 11px;
+      padding: 4px 10px;
+      height: auto;
+    }
   </style>
 </head>
 <body>
@@ -316,6 +477,16 @@
   </div>
 
   <div id="backend-off" style="display: none;">Cannot reach server.</div>
+
+  <div id="privacy-notice" style="display: none;">
+    <p>Form labels and page context are sent to an AI service to generate values. No data is stored by us.</p>
+    <div class="privacy-actions">
+      <span>
+        <a href="#" id="privacy-policy-link" target="_blank" rel="noopener">Privacy / API policy</a>
+      </span>
+      <button type="button" class="secondary privacy-got-it" id="privacy-got-it">Got it</button>
+    </div>
+  </div>
 
   <div class="action-zone" id="action-zone">
     <div class="main-action">
@@ -332,6 +503,47 @@
           </label>
         </div>
       </div>
+      <div class="profile-section" id="profile-section">
+        <span class="fill-mode-label">Profile</span>
+        <select id="profile-select">
+          <option value="">None (AI only)</option>
+        </select>
+        <div class="profile-mode" id="profile-mode">
+          <label>
+            <input type="radio" name="profileMode" value="only" checked>
+            <span>Profile only</span>
+          </label>
+          <label>
+            <input type="radio" name="profileMode" value="plus_ai">
+            <span>Profile + AI for rest</span>
+          </label>
+        </div>
+        <button type="button" class="manage-profiles-btn" id="manage-profiles-btn">Manage profiles</button>
+        <div id="manage-profiles-panel">
+          <div class="profile-list" id="profile-list"></div>
+          <form id="profile-form" class="profile-form">
+            <input type="hidden" id="profile-id">
+            <label for="profile-name">Profile name</label>
+            <input type="text" id="profile-name" placeholder="e.g. Work" required>
+            <label for="profile-first_name">First name</label>
+            <input type="text" id="profile-first_name" placeholder="John">
+            <label for="profile-last_name">Last name</label>
+            <input type="text" id="profile-last_name" placeholder="Doe">
+            <label for="profile-email">Email</label>
+            <input type="email" id="profile-email" placeholder="john@example.com">
+            <label for="profile-phone">Phone</label>
+            <input type="tel" id="profile-phone" placeholder="+1 234 567 890">
+            <label for="profile-company">Company</label>
+            <input type="text" id="profile-company" placeholder="Acme Inc">
+            <label for="profile-role">Role</label>
+            <input type="text" id="profile-role" placeholder="Software Engineer">
+            <div class="profile-form-actions">
+              <button type="submit" id="profile-save">Save</button>
+              <button type="button" class="secondary" id="profile-cancel">Cancel</button>
+            </div>
+          </form>
+        </div>
+      </div>
       <button id="fill">Execute Autofill</button>
       <div id="status"></div>
     </div>
@@ -340,6 +552,7 @@
       <div id="preview-list"></div>
       <div class="preview-actions">
         <button id="cancel-preview" class="secondary">Cancel</button>
+        <button type="button" id="save-as-profile-btn" class="secondary">Save as profile</button>
         <button id="confirm-fill">Fill form</button>
       </div>
     </div>

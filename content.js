@@ -123,7 +123,9 @@ function extractFields() {
 
   return {
     fields,
-    context: formTitle
+    context: formTitle,
+    pageUrl: window.location.href,
+    pageTitle: document.title
   };
 }
 
