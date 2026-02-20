@@ -254,6 +254,56 @@
     .action-zone.hide-main .main-action {
       display: none;
     }
+
+    .fill-mode {
+      margin-bottom: 12px;
+    }
+
+    .fill-mode-label {
+      display: block;
+      font-size: 11px;
+      color: var(--accents-4);
+      margin-bottom: 6px;
+    }
+
+    .fill-mode-options {
+      display: flex;
+      gap: 0;
+      border: 1px solid var(--accents-2);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+
+    .fill-mode-options label {
+      flex: 1;
+      margin: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 8px 10px;
+      font-size: 12px;
+      cursor: pointer;
+      background: var(--bg);
+      color: var(--accents-4);
+      border-right: 1px solid var(--accents-2);
+      transition: background 0.15s, color 0.15s;
+    }
+
+    .fill-mode-options label:last-child {
+      border-right: none;
+    }
+
+    .fill-mode-options input {
+      position: absolute;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .fill-mode-options label:has(input:checked) {
+      background: var(--fg);
+      color: var(--bg);
+      font-weight: 500;
+    }
   </style>
 </head>
 <body>
@@ -269,6 +319,19 @@
 
   <div class="action-zone" id="action-zone">
     <div class="main-action">
+      <div class="fill-mode">
+        <span class="fill-mode-label">Fill mode</span>
+        <div class="fill-mode-options">
+          <label>
+            <input type="radio" name="fillMode" value="all" checked>
+            <span>Fill all</span>
+          </label>
+          <label>
+            <input type="radio" name="fillMode" value="empty">
+            <span>Fill only empty</span>
+          </label>
+        </div>
+      </div>
       <button id="fill">Execute Autofill</button>
       <div id="status"></div>
     </div>

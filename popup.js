@@ -38,7 +38,12 @@ function getLabelForKey(key) {
 function renderPreviewList() {
   if (!pendingValues) return;
   previewList.innerHTML = "";
-  for (const [key, value] of Object.entries(pendingValues)) {
+  const keys = pendingFields && pendingFields.length
+    ? pendingFields.map((f) => f.key)
+    : Object.keys(pendingValues);
+  for (const key of keys) {
+    const value = pendingValues[key];
+    if (value === undefined) continue;
     const label = getLabelForKey(key);
     const row = document.createElement("div");
     row.className = "preview-row";
@@ -205,13 +210,15 @@ fillBtn.onclick = async () => {
       return;
     }
 
+    const fillOnlyEmpty = document.querySelector('input[name="fillMode"]:checked').value === "empty";
+
     status.innerText = "Generating AI responses...";
     let response;
     try {
       response = await fetch(`${BACKEND_URL}/analyze-form`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fields, context })
+        body: JSON.stringify({ fields, context, fillOnlyEmpty })
       });
     } catch (err) {
       throw new Error("Cannot reach server");

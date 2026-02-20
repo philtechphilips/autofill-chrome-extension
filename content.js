@@ -66,6 +66,14 @@ function extractFields() {
     // Capture the best key for the AI to use
     const finalKey = name || id || (label ? label.toLowerCase().replace(/\s+/g, '_') : null);
 
+    // Current value (for "Fill only empty" – backend skips suggesting when present)
+    let currentValue = "";
+    if (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT") {
+      currentValue = (el.value || "").trim();
+    } else if (el.isContentEditable) {
+      currentValue = (el.innerText || el.textContent || "").trim();
+    }
+
     if (finalKey) {
       fields.push({
         tag: el.tagName.toLowerCase(),
@@ -74,7 +82,8 @@ function extractFields() {
         id: id || null,
         key: finalKey,
         label: label || "Unknown Field",
-        options: options
+        options: options,
+        currentValue: currentValue
       });
     }
   });
