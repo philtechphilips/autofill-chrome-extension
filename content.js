@@ -13,8 +13,8 @@ function extractFields() {
 
     if (isHidden && !isStandardTag && !isMuiNative) return;
 
-    // Skip generic buttons and file inputs (file inputs cannot be filled programmatically)
-    if (["submit", "button", "reset", "file"].includes(el.type)) return;
+    // Skip generic buttons (but NOT file inputs - we want to show them in preview)
+    if (["submit", "button", "reset"].includes(el.type)) return;
 
     const id = el.id || el.getAttribute("id");
     const name = el.name || el.getAttribute("name");
@@ -216,6 +216,149 @@ function fillForm(values) {
   }
 }
 
+function fillFileInputs(files) {
+  for (const [key, fileData] of Object.entries(files)) {
+    // Find the file input by key (id, name, or data attribute)
+    let el = document.getElementById(key) ||
+      document.getElementsByName(key)[0] ||
+      document.querySelector(`input[type="file"][data-test-id*="${key}" i]`) ||
+      document.querySelector(`input[type="file"][data-testid*="${key}" i]`);
+    
+    // Fuzzy search for file inputs
+    if (!el) {
+      el = Array.from(document.querySelectorAll('input[type="file"]'))
+        .find(input => {
+          const l = input.getAttribute("aria-label") || "";
+          const lblId = input.getAttribute("aria-labelledby");
+          const lblTxt = (lblId ? document.getElementById(lblId)?.innerText : "") || "";
+          const inputId = input.id || "";
+          const inputName = input.name || "";
+          
+          return inputId.toLowerCase() === key.toLowerCase() ||
+            inputName.toLowerCase() === key.toLowerCase() ||
+            l.toLowerCase().includes(key.toLowerCase()) ||
+            lblTxt.toLowerCase().includes(key.toLowerCase().replace(/_/g, " "));
+        });
+    }
+    
+    if (!el || el.type !== "file") {
+      console.warn(`File input not found for key: ${key}`);
+      continue;
+    }
+    
+    try {
+      // Convert base64 back to File
+      const base64Response = fileData.base64;
+      const byteString = atob(base64Response.split(',')[1]);
+      const mimeType = fileData.type || base64Response.split(',')[0].split(':')[1].split(';')[0];
+      const ab = new ArrayBuffer(byteString.length);
+      const ia = new Uint8Array(ab);
+      for (let i = 0; i < byteString.length; i++) {
+        ia[i] = byteString.charCodeAt(i);
+      }
+      const blob = new Blob([ab], { type: mimeType });
+      const file = new File([blob], fileData.name, { type: mimeType });
+      
+      // Use DataTransfer to set the file
+      const dataTransfer = new DataTransfer();
+      dataTransfer.items.add(file);
+      el.files = dataTransfer.files;
+      
+      // Trigger events
+      const eventOptions = { bubbles: true, cancelable: true };
+      el.dispatchEvent(new Event("input", eventOptions));
+      el.dispatchEvent(new Event("change", eventOptions));
+      
+      console.log(`File set for ${key}: ${fileData.name}`);
+    } catch (err) {
+      console.error(`Failed to set file for ${key}:`, err);
+    }
+  }
+}
+
+function undoFill(previousValues, filledKeys) {
+  // For each key that was filled, restore to previous value (or clear if it was empty)
+  for (const key of filledKeys) {
+    // Find the element
+    let el = document.getElementById(key) ||
+      document.getElementsByName(key)[0] ||
+      document.querySelector(`[data-test-id*="${key}" i]`) ||
+      document.querySelector(`[data-testid*="${key}" i]`);
+
+    if (!el) {
+      el = Array.from(document.querySelectorAll("input, textarea, select, [role='combobox']"))
+        .find(input => {
+          const l = input.getAttribute("aria-label") || "";
+          const p = input.placeholder || "";
+          const lblId = input.getAttribute("aria-labelledby");
+          const lblTxt = (lblId ? document.getElementById(lblId)?.innerText : "") || "";
+
+          return input.id.toLowerCase() === key.toLowerCase() ||
+            input.name?.toLowerCase() === key.toLowerCase() ||
+            l.toLowerCase().includes(key.toLowerCase()) ||
+            p.toLowerCase().includes(key.toLowerCase()) ||
+            lblTxt.toLowerCase().includes(key.toLowerCase().replace(/_/g, " "));
+        });
+    }
+
+    if (!el) continue;
+
+    // Skip file inputs - can't programmatically clear them
+    if (el.tagName === "INPUT" && el.type === "file") {
+      continue;
+    }
+
+    // Get the previous value (empty string if it wasn't set)
+    const previousValue = previousValues[key] !== undefined ? previousValues[key] : "";
+
+    // Handle standard SELECT
+    if (el.tagName === "SELECT") {
+      el.value = previousValue;
+      if (previousValue === "") {
+        el.selectedIndex = 0;
+      }
+    }
+    // Handle standard INPUT/TEXTAREA
+    else if (el.tagName === "INPUT" || el.tagName === "TEXTAREA") {
+      if (el.type === "checkbox") {
+        el.checked = !!previousValue;
+      } else if (el.type === "radio") {
+        if (previousValue) {
+          const radio = document.querySelector(`input[name="${el.name}"][value="${previousValue}"]`);
+          if (radio) radio.checked = true;
+        } else {
+          // Uncheck all radios in this group
+          document.querySelectorAll(`input[name="${el.name}"]`).forEach(r => r.checked = false);
+        }
+      } else {
+        // Use native setter to properly trigger React/Vue state updates
+        const prototype = el.tagName === "INPUT" ? window.HTMLInputElement.prototype : window.HTMLTextAreaElement.prototype;
+        const descriptor = Object.getOwnPropertyDescriptor(prototype, "value");
+        if (descriptor && descriptor.set) {
+          descriptor.set.call(el, previousValue);
+        } else {
+          el.value = previousValue;
+        }
+      }
+    }
+
+    // Trigger full event chain
+    const eventOptions = { bubbles: true, cancelable: true };
+    el.dispatchEvent(new Event("input", eventOptions));
+    el.dispatchEvent(new Event("change", eventOptions));
+    el.dispatchEvent(new FocusEvent("focus", eventOptions));
+    el.dispatchEvent(new FocusEvent("blur", eventOptions));
+
+    // For Material UI
+    if (el.classList.contains('MuiInputBase-input') || el.classList.contains('MuiSelect-nativeInput')) {
+      const parent = el.closest('.MuiInputBase-root') || el.parentElement;
+      parent.dispatchEvent(new Event('click', eventOptions));
+    }
+  }
+}
+
 // Make them available globally in the content script context
 window.extractFields = extractFields;
 window.fillForm = fillForm;
+window.fillFileInputs = fillFileInputs;
+window.undoFill = undoFill;

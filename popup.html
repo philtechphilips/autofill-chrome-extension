@@ -231,6 +231,44 @@
       border-radius: 4px;
     }
 
+    .preview-row .file-input {
+      flex: 1;
+      min-width: 0;
+      font-size: 10px;
+      font-family: 'Geist', sans-serif;
+      color: var(--accents-4);
+    }
+
+    .preview-row .file-input::file-selector-button {
+      padding: 4px 8px;
+      font-size: 10px;
+      font-family: 'Geist', sans-serif;
+      background: var(--accents-1);
+      border: 1px solid var(--accents-2);
+      border-radius: 4px;
+      cursor: pointer;
+      margin-right: 8px;
+    }
+
+    .preview-row .file-input::file-selector-button:hover {
+      background: var(--accents-2);
+    }
+
+    #undo-fill-btn {
+      background: #fef3c7;
+      border-color: #f59e0b;
+      color: #92400e;
+    }
+
+    #undo-fill-btn:hover:not(:disabled) {
+      background: #fde68a;
+      color: #78350f;
+    }
+
+    #undo-fill-btn svg {
+      vertical-align: middle;
+    }
+
     .preview-actions {
       display: flex;
       gap: 8px;
@@ -519,32 +557,24 @@
           </label>
         </div>
         <button type="button" class="manage-profiles-btn" id="manage-profiles-btn">Manage profiles</button>
+        <button type="button" class="manage-profiles-btn" id="sync-profiles-btn" style="margin-left: 8px;">Sync to cloud</button>
         <div id="manage-profiles-panel">
+          <p style="font-size: 11px; color: var(--accents-4); margin-bottom: 8px;">
+            Profiles are saved from form fills. Use "Save as profile" after filling a form.
+          </p>
           <div class="profile-list" id="profile-list"></div>
-          <form id="profile-form" class="profile-form">
-            <input type="hidden" id="profile-id">
-            <label for="profile-name">Profile name</label>
-            <input type="text" id="profile-name" placeholder="e.g. Work" required>
-            <label for="profile-first_name">First name</label>
-            <input type="text" id="profile-first_name" placeholder="John">
-            <label for="profile-last_name">Last name</label>
-            <input type="text" id="profile-last_name" placeholder="Doe">
-            <label for="profile-email">Email</label>
-            <input type="email" id="profile-email" placeholder="john@example.com">
-            <label for="profile-phone">Phone</label>
-            <input type="tel" id="profile-phone" placeholder="+1 234 567 890">
-            <label for="profile-company">Company</label>
-            <input type="text" id="profile-company" placeholder="Acme Inc">
-            <label for="profile-role">Role</label>
-            <input type="text" id="profile-role" placeholder="Software Engineer">
-            <div class="profile-form-actions">
-              <button type="submit" id="profile-save">Save</button>
-              <button type="button" class="secondary" id="profile-cancel">Cancel</button>
-            </div>
-          </form>
+          <div class="profile-form-actions" style="margin-top: 8px;">
+            <button type="button" class="secondary" id="profile-cancel">Close</button>
+          </div>
         </div>
       </div>
       <button id="fill">Execute Autofill</button>
+      <button id="undo-fill-btn" class="secondary" style="display: none; margin-top: 8px;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 6px;">
+          <path d="M3 10h10a5 5 0 0 1 5 5v2M3 10l4-4M3 10l4 4"/>
+        </svg>
+        Undo Last Fill
+      </button>
       <div id="status"></div>
     </div>
     <div id="preview-section" class="preview-section">
@@ -560,10 +590,65 @@
 
   <div class="divider"></div>
 
+  <!-- Auth Section -->
+  <div id="auth-section">
+    <div id="logged-out-view">
+      <p style="font-size: 11px; color: var(--accents-4); margin-bottom: 8px;">Sign in to sync profiles across devices</p>
+      <button type="button" id="login-btn" class="secondary" style="height: 32px; font-size: 11px;">Sign In</button>
+    </div>
+    <div id="logged-in-view" style="display: none;">
+      <div style="display: flex; align-items: center; justify-content: space-between; font-size: 11px;">
+        <span id="user-email" style="color: var(--accents-4);"></span>
+        <button type="button" id="logout-btn" class="secondary" style="width: auto; height: 24px; padding: 0 8px; font-size: 10px;">Logout</button>
+      </div>
+      <div id="sync-status" style="font-size: 10px; color: var(--accents-3); margin-top: 4px;"></div>
+    </div>
+  </div>
+
+  <!-- Login Modal -->
+  <div id="login-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 100;">
+    <div style="background: var(--bg); margin: 40px auto; padding: 20px; border-radius: var(--radius); width: 260px;">
+      <h3 style="margin: 0 0 16px; font-size: 14px;">Sign In</h3>
+      <form id="login-form">
+        <label style="display: block; font-size: 11px; color: var(--accents-4); margin-bottom: 4px;">Email</label>
+        <input type="email" id="login-email" required style="width: 100%; padding: 8px; margin-bottom: 12px; border: 1px solid var(--accents-2); border-radius: var(--radius); font-size: 12px;">
+        <label style="display: block; font-size: 11px; color: var(--accents-4); margin-bottom: 4px;">Password</label>
+        <input type="password" id="login-password" required style="width: 100%; padding: 8px; margin-bottom: 12px; border: 1px solid var(--accents-2); border-radius: var(--radius); font-size: 12px;">
+        <div id="login-error" style="font-size: 11px; color: #c53030; margin-bottom: 8px; display: none;"></div>
+        <div style="display: flex; gap: 8px;">
+          <button type="submit" style="flex: 1;">Sign In</button>
+          <button type="button" id="login-cancel" class="secondary" style="flex: 1;">Cancel</button>
+        </div>
+        <p style="font-size: 10px; color: var(--accents-3); margin-top: 12px; text-align: center;">
+          Don't have an account? <a href="#" id="show-register" style="color: var(--fg);">Register</a>
+        </p>
+      </form>
+      <form id="register-form" style="display: none;">
+        <label style="display: block; font-size: 11px; color: var(--accents-4); margin-bottom: 4px;">Name</label>
+        <input type="text" id="register-name" style="width: 100%; padding: 8px; margin-bottom: 12px; border: 1px solid var(--accents-2); border-radius: var(--radius); font-size: 12px;">
+        <label style="display: block; font-size: 11px; color: var(--accents-4); margin-bottom: 4px;">Email</label>
+        <input type="email" id="register-email" required style="width: 100%; padding: 8px; margin-bottom: 12px; border: 1px solid var(--accents-2); border-radius: var(--radius); font-size: 12px;">
+        <label style="display: block; font-size: 11px; color: var(--accents-4); margin-bottom: 4px;">Password</label>
+        <input type="password" id="register-password" required style="width: 100%; padding: 8px; margin-bottom: 12px; border: 1px solid var(--accents-2); border-radius: var(--radius); font-size: 12px;">
+        <div id="register-error" style="font-size: 11px; color: #c53030; margin-bottom: 8px; display: none;"></div>
+        <div style="display: flex; gap: 8px;">
+          <button type="submit" style="flex: 1;">Register</button>
+          <button type="button" id="register-cancel" class="secondary" style="flex: 1;">Cancel</button>
+        </div>
+        <p style="font-size: 10px; color: var(--accents-3); margin-top: 12px; text-align: center;">
+          Already have an account? <a href="#" id="show-login" style="color: var(--fg);">Sign In</a>
+        </p>
+      </form>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
   <div class="meta">
     <span>v0.1.0</span>
   </div>
 
+  <script src="crypto.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>
