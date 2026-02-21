@@ -1,19 +1,14 @@
 function extractFields() {
   const fields = [];
+  const processedElements = new WeakSet();
+  const processedKeys = new Set();
+  
+  console.log('[Autofill] Starting smart field extraction...');
   
   // Detect if this is a Google Form
   const isGoogleForm = window.location.hostname.includes('docs.google.com') && window.location.pathname.includes('/forms/');
-  
-  // Include standard fields, custom dropdowns, framework-specific markers, and dynamic form elements
-  const standardSelector = "input, textarea, select, [contenteditable='true'], .select-input, .sfe-select, [role='combobox'], .MuiSelect-nativeInput";
-  
-  // Dynamic form selectors (Google Forms, Typeform, JotForm, etc.)
-  const dynamicSelector = "[role='textbox'], [role='listbox'], [data-value], [jsname][data-params], .freebirdFormviewerComponentsQuestionTextRoot input, .freebirdFormviewerComponentsQuestionTextRoot textarea";
-  
-  const candidates = document.querySelectorAll(`${standardSelector}, ${dynamicSelector}`);
-  const processedElements = new Set();
 
-  // For Google Forms, extract questions differently
+  // For Google Forms, use special extraction
   if (isGoogleForm) {
     const googleFormFields = extractGoogleFormFields();
     if (googleFormFields.length > 0) {
@@ -26,150 +21,34 @@ function extractFields() {
       };
     }
   }
-
-  candidates.forEach(el => {
-    // Avoid duplicates
+  
+  // SMART CRAWLING: Find ALL interactive elements that could be form fields
+  const interactiveElements = findAllInteractiveElements();
+  console.log(`[Autofill] Found ${interactiveElements.length} interactive elements`);
+  
+  interactiveElements.forEach((el, index) => {
     if (processedElements.has(el)) return;
     processedElements.add(el);
     
-    const style = window.getComputedStyle(el);
-    const isHidden = style.display === "none" || style.visibility === "hidden" || style.opacity === "0";
-
-    // We process hidden elements if they are standard input/select/textarea OR have specific framework classes like Mui native inputs
-    const isStandardTag = ["INPUT", "SELECT", "TEXTAREA"].includes(el.tagName);
-    const isMuiNative = el.classList.contains("MuiSelect-nativeInput");
-    const isDynamicInput = el.getAttribute("role") === "textbox" || el.getAttribute("role") === "listbox";
-
-    if (isHidden && !isStandardTag && !isMuiNative && !isDynamicInput) return;
-
-    // Skip generic buttons (but NOT file inputs - we want to show them in preview)
-    if (["submit", "button", "reset"].includes(el.type)) return;
-
-    const id = el.id || el.getAttribute("id");
-    const name = el.name || el.getAttribute("name");
-
-    let label = null;
-
-    // 1. Standard label for
-    if (id) {
-      label = document.querySelector(`label[for="${id}"]`)?.innerText;
-    }
-
-    // 2. Wrap label or aria-label/placeholder
-    if (!label) {
-      label = el.closest("label")?.innerText ||
-        el.getAttribute("aria-label") ||
-        (el.getAttribute("aria-labelledby") ? document.getElementById(el.getAttribute("aria-labelledby"))?.innerText : null) ||
-        el.placeholder ||
-        el.getAttribute("placeholder");
-    }
-
-    // 3. MUI Specific Check: Look for nearby label elements inside MuiFormControl-root
-    if (!label) {
-      const muiRoot = el.closest(".MuiFormControl-root");
-      if (muiRoot) {
-        const muiLabel = muiRoot.querySelector(".MuiInputLabel-root");
-        if (muiLabel) label = muiLabel.innerText;
-      }
-    }
-    
-    // 4. Dynamic form label detection (role="heading" nearby, data-params, etc.)
-    if (!label) {
-      // Look for role="heading" in parent containers
-      const container = el.closest('[data-params], [jscontroller], .freebirdFormviewerComponentsQuestionBaseRoot, .question-container, [role="listitem"]');
-      if (container) {
-        const heading = container.querySelector('[role="heading"], .freebirdFormviewerComponentsQuestionBaseHeader, .question-title, [data-question-title]');
-        if (heading) label = heading.innerText;
-      }
-    }
-
-    // 5. Search for nearby text (More aggressive)
-    if (!label) {
-      const parent = el.closest(".form-group, .field-wrapper, .col-md-6, .col-md-12, div");
-      if (parent) {
-        const textNodes = Array.from(parent.querySelectorAll("div, span, label, p, [role='heading']"))
-          .filter(e => e !== el && !e.contains(el) && e.innerText.trim().length > 0 && e.innerText.trim().length < 200);
-
-        if (textNodes.length > 0) {
-          label = textNodes[0].innerText.replace("*", "").trim();
-        }
-      }
-    }
-
-    // Capture options for select/listbox
-    let options = null;
-    if (el.tagName === "SELECT") {
-      options = Array.from(el.options).map(opt => ({ text: opt.text, value: opt.value }));
-    } else if (el.getAttribute("role") === "listbox") {
-      const optionEls = el.querySelectorAll('[role="option"], [data-value]');
-      if (optionEls.length > 0) {
-        options = Array.from(optionEls).map(opt => ({
-          text: opt.innerText || opt.getAttribute("data-value"),
-          value: opt.getAttribute("data-value") || opt.innerText
-        }));
-      }
-    }
-
-    // Capture the best key for the AI to use
-    const finalKey = name || id || (label ? label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') : null);
-
-    // Current value (for "Fill only empty" – backend skips suggesting when present)
-    let currentValue = "";
-    if (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT") {
-      currentValue = (el.value || "").trim();
-    } else if (el.isContentEditable || el.getAttribute("role") === "textbox") {
-      currentValue = (el.innerText || el.textContent || "").trim();
-    } else if (el.getAttribute("data-value")) {
-      currentValue = el.getAttribute("data-value");
-    }
-
-    if (finalKey) {
-      fields.push({
-        tag: el.tagName.toLowerCase(),
-        type: el.type || el.getAttribute("role") || "text",
-        name: name || null,
-        id: id || null,
-        key: finalKey,
-        label: label || "Unknown Field",
-        options: options,
-        currentValue: currentValue,
-        isDynamic: isDynamicInput || el.isContentEditable
-      });
+    const field = smartExtractField(el, index);
+    if (field && field.label && !processedKeys.has(field.key)) {
+      processedKeys.add(field.key);
+      fields.push(field);
+      console.log(`[Autofill] Extracted: "${field.label}" (${field.type}) key=${field.key}`);
     }
   });
+  
+  console.log(`[Autofill] Total fields extracted: ${fields.length}`);
 
   // Extract Form Context
-  let formTitle = "";
-  // 1. Try to find the nearest heading
-  const firstField = candidates[0];
-  if (firstField) {
-    const form = firstField.closest("form");
+  let formTitle = document.querySelector("h1, [role='heading'][aria-level='1'], .page-title, .form-title")?.innerText || "";
+  if (!formTitle) {
+    const form = document.querySelector("form");
     if (form) {
-      // Look for a legend, heading or aria-label on the form
-      const legend = form.querySelector("legend");
-      if (legend) formTitle = legend.innerText;
-
-      if (!formTitle) {
-        formTitle = form.getAttribute("aria-label") || form.name || form.id;
-      }
-
-      if (!formTitle) {
-        // Look for preceding H1-H3
-        let prev = form.previousElementSibling;
-        while (prev && !formTitle) {
-          if (["H1", "H2", "H3"].includes(prev.tagName)) {
-            formTitle = prev.innerText;
-          }
-          prev = prev.previousElementSibling;
-        }
-      }
+      formTitle = form.getAttribute("aria-label") || form.name || form.id || "";
     }
   }
-
-  // 2. Fallback to page title or first H1
-  if (!formTitle) {
-    formTitle = document.querySelector("h1, [role='heading'][aria-level='1']")?.innerText || document.title;
-  }
+  if (!formTitle) formTitle = document.title;
 
   return {
     fields,
@@ -177,6 +56,463 @@ function extractFields() {
     pageUrl: window.location.href,
     pageTitle: document.title
   };
+}
+
+// Find ALL interactive elements using multiple strategies
+function findAllInteractiveElements() {
+  const elements = new Set();
+  
+  // Strategy 1: Standard form elements
+  document.querySelectorAll('input, textarea, select').forEach(el => {
+    if (!isHiddenOrDisabled(el) && !isButtonType(el)) {
+      elements.add(el);
+    }
+  });
+  
+  // Strategy 2: ARIA roles that indicate input
+  document.querySelectorAll('[role="textbox"], [role="combobox"], [role="listbox"], [role="spinbutton"], [role="searchbox"], [role="slider"]').forEach(el => {
+    if (!isHiddenOrDisabled(el)) elements.add(el);
+  });
+  
+  // Strategy 3: Contenteditable elements
+  document.querySelectorAll('[contenteditable="true"]').forEach(el => {
+    if (!isHiddenOrDisabled(el)) elements.add(el);
+  });
+  
+  // Strategy 4: Custom components - find by common patterns
+  // Look for elements that CONTAIN inputs or have input-like behavior
+  document.querySelectorAll('[class*="dropdown"], [class*="select"], [class*="picker"], [class*="input"], [class*="field"], [class*="autocomplete"], [class*="combobox"]').forEach(el => {
+    // Only add if it's a custom component (not a wrapper around standard input)
+    const hasStandardInput = el.querySelector('input:not([type="hidden"]), select, textarea');
+    if (!hasStandardInput && !isHiddenOrDisabled(el) && isInteractiveComponent(el)) {
+      elements.add(el);
+    }
+  });
+  
+  // Strategy 5: Elements with form-related attributes
+  // Note: Can't use [(ngModel)] in selector as parentheses are invalid CSS
+  const formAttrSelectors = [
+    '[formcontrolname]',
+    '[ng-model]',
+    '[v-model]',
+    '[data-bind]',
+    '[ng-reflect-model]',
+    '[ng-reflect-name]'
+  ];
+  formAttrSelectors.forEach(selector => {
+    try {
+      document.querySelectorAll(selector).forEach(el => {
+        if (!isHiddenOrDisabled(el)) elements.add(el);
+      });
+    } catch (e) {
+      // Ignore invalid selectors
+    }
+  });
+  
+  // Strategy 6: Find custom tag components (Angular, Vue, Web Components)
+  // These often have hyphenated names like p-dropdown, mat-select, etc.
+  const allElements = document.querySelectorAll('*');
+  allElements.forEach(el => {
+    const tagName = el.tagName.toLowerCase();
+    // Custom elements have hyphens in their names
+    if (tagName.includes('-') && !tagName.startsWith('x-') && isFormComponent(el)) {
+      if (!isHiddenOrDisabled(el)) elements.add(el);
+    }
+  });
+  
+  // Strategy 7: Find clickable elements that look like form controls
+  document.querySelectorAll('[tabindex="0"], [tabindex]:not([tabindex="-1"])').forEach(el => {
+    if (!isHiddenOrDisabled(el) && isFormLikeElement(el) && !elements.has(el)) {
+      elements.add(el);
+    }
+  });
+  
+  return Array.from(elements);
+}
+
+// Check if element is hidden or disabled
+function isHiddenOrDisabled(el) {
+  if (el.disabled || el.getAttribute('disabled') !== null) return true;
+  if (el.getAttribute('aria-hidden') === 'true') return true;
+  
+  const style = window.getComputedStyle(el);
+  if (style.display === 'none' || style.visibility === 'hidden') return true;
+  if (parseFloat(style.opacity) === 0) return true;
+  
+  // Check if element has no dimensions (truly hidden)
+  const rect = el.getBoundingClientRect();
+  if (rect.width === 0 && rect.height === 0) return true;
+  
+  return false;
+}
+
+// Check if element is a button type
+function isButtonType(el) {
+  const type = el.type?.toLowerCase();
+  return ['submit', 'button', 'reset', 'image'].includes(type);
+}
+
+// Check if element behaves like an interactive component
+function isInteractiveComponent(el) {
+  // Has click handler or looks interactive
+  const hasClickHandler = el.onclick || el.getAttribute('onclick') || el.getAttribute('ng-click') || el.getAttribute('(click)') || el.getAttribute('@click');
+  const hasAriaRole = el.getAttribute('role');
+  const isClickable = el.style.cursor === 'pointer' || window.getComputedStyle(el).cursor === 'pointer';
+  const hasTabIndex = el.getAttribute('tabindex') !== null && el.getAttribute('tabindex') !== '-1';
+  
+  return hasClickHandler || hasAriaRole || isClickable || hasTabIndex;
+}
+
+// Check if custom element is a form component
+function isFormComponent(el) {
+  const tagName = el.tagName.toLowerCase();
+  const formKeywords = ['input', 'select', 'dropdown', 'picker', 'calendar', 'date', 'time', 'checkbox', 'radio', 'switch', 'toggle', 'autocomplete', 'combobox', 'textarea', 'editor', 'field', 'chips', 'multiselect'];
+  
+  return formKeywords.some(keyword => tagName.includes(keyword));
+}
+
+// Check if element looks like a form field
+function isFormLikeElement(el) {
+  const tagName = el.tagName.toLowerCase();
+  
+  // Skip obvious non-form elements
+  if (['button', 'a', 'nav', 'header', 'footer', 'aside', 'article', 'section', 'div', 'span', 'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li', 'table', 'tr', 'td', 'th', 'img', 'svg', 'icon'].includes(tagName)) {
+    // But check if div/span has form-related classes
+    if (tagName === 'div' || tagName === 'span') {
+      const className = el.className?.toLowerCase() || '';
+      const hasFormClass = ['input', 'select', 'dropdown', 'field', 'control', 'picker'].some(k => className.includes(k));
+      if (!hasFormClass) return false;
+    } else {
+      return false;
+    }
+  }
+  
+  // Check for form-related attributes
+  const hasFormAttr = el.getAttribute('formcontrolname') || el.getAttribute('ng-model') || el.getAttribute('name') || el.getAttribute('id');
+  
+  // Check for ARIA attributes indicating form control
+  const hasAriaLabel = el.getAttribute('aria-label') || el.getAttribute('aria-labelledby');
+  const hasRole = ['textbox', 'combobox', 'listbox', 'spinbutton', 'checkbox', 'radio', 'switch', 'slider'].includes(el.getAttribute('role'));
+  
+  return hasFormAttr || hasAriaLabel || hasRole;
+}
+
+// Smart extraction - analyzes element and its context to extract field info
+function smartExtractField(el, index) {
+  const tagName = el.tagName.toLowerCase();
+  
+  // Determine field type
+  const fieldType = detectFieldType(el);
+  if (!fieldType) return null;
+  
+  // Find label using multiple strategies
+  const label = findLabelForElement(el);
+  if (!label) return null;
+  
+  // Generate key
+  const key = generateFieldKey(el, label);
+  
+  // Get current value
+  const currentValue = getElementValue(el);
+  
+  // Get options for select-like elements
+  const options = getElementOptions(el);
+  
+  return {
+    tag: tagName,
+    type: fieldType,
+    name: el.name || el.getAttribute('formcontrolname') || el.getAttribute('ng-reflect-name') || null,
+    id: el.id || null,
+    key: key,
+    label: label,
+    options: options,
+    currentValue: currentValue,
+    isDynamic: !['input', 'textarea', 'select'].includes(tagName),
+    elementIndex: index
+  };
+}
+
+// Detect field type from element
+function detectFieldType(el) {
+  const tagName = el.tagName.toLowerCase();
+  
+  // Standard elements
+  if (tagName === 'input') {
+    const type = el.type?.toLowerCase() || 'text';
+    if (['hidden', 'submit', 'button', 'reset', 'image'].includes(type)) return null;
+    return type;
+  }
+  if (tagName === 'textarea') return 'textarea';
+  if (tagName === 'select') return 'select';
+  
+  // ARIA roles
+  const role = el.getAttribute('role');
+  if (role) {
+    const roleMap = {
+      'textbox': 'text',
+      'searchbox': 'search',
+      'combobox': 'select',
+      'listbox': 'select',
+      'spinbutton': 'number',
+      'slider': 'range',
+      'checkbox': 'checkbox',
+      'radio': 'radio',
+      'switch': 'checkbox'
+    };
+    if (roleMap[role]) return roleMap[role];
+  }
+  
+  // Contenteditable
+  if (el.getAttribute('contenteditable') === 'true') return 'textarea';
+  
+  // Custom components - detect by tag name or class
+  const className = (el.className?.toLowerCase?.() || el.className || '').toString();
+  const combined = tagName + ' ' + className;
+  
+  if (combined.includes('dropdown') || combined.includes('select') || combined.includes('combobox') || combined.includes('listbox')) return 'select';
+  if (combined.includes('calendar') || combined.includes('datepicker') || combined.includes('date-picker')) return 'date';
+  if (combined.includes('timepicker') || combined.includes('time-picker')) return 'time';
+  if (combined.includes('checkbox') || combined.includes('check-box')) return 'checkbox';
+  if (combined.includes('radio')) return 'radio';
+  if (combined.includes('switch') || combined.includes('toggle')) return 'checkbox';
+  if (combined.includes('autocomplete') || combined.includes('auto-complete') || combined.includes('typeahead')) return 'autocomplete';
+  if (combined.includes('textarea') || combined.includes('editor') || combined.includes('richtext')) return 'textarea';
+  if (combined.includes('input') || combined.includes('text')) return 'text';
+  if (combined.includes('multiselect') || combined.includes('multi-select') || combined.includes('chips')) return 'multiselect';
+  if (combined.includes('number') || combined.includes('numeric') || combined.includes('spinner')) return 'number';
+  if (combined.includes('password')) return 'password';
+  if (combined.includes('email')) return 'email';
+  if (combined.includes('phone') || combined.includes('tel')) return 'tel';
+  if (combined.includes('url')) return 'url';
+  if (combined.includes('color')) return 'color';
+  if (combined.includes('file') || combined.includes('upload')) return 'file';
+  
+  // Check for input inside
+  const innerInput = el.querySelector('input:not([type="hidden"])');
+  if (innerInput) return innerInput.type || 'text';
+  
+  // Default for custom components that look interactive
+  if (el.getAttribute('tabindex') !== null || el.getAttribute('role')) return 'text';
+  
+  return null;
+}
+
+// Find label for element using multiple strategies
+function findLabelForElement(el) {
+  let label = null;
+  
+  // Strategy 1: Explicit label[for] attribute
+  if (el.id) {
+    const forLabel = document.querySelector(`label[for="${el.id}"]`);
+    if (forLabel) label = cleanLabel(forLabel.innerText);
+  }
+  
+  // Strategy 2: Wrapping label
+  if (!label) {
+    const wrapLabel = el.closest('label');
+    if (wrapLabel) {
+      // Get label text excluding the input's own text
+      const clone = wrapLabel.cloneNode(true);
+      clone.querySelectorAll('input, select, textarea').forEach(e => e.remove());
+      label = cleanLabel(clone.innerText);
+    }
+  }
+  
+  // Strategy 3: ARIA attributes
+  if (!label) {
+    label = el.getAttribute('aria-label');
+  }
+  if (!label && el.getAttribute('aria-labelledby')) {
+    const labelEl = document.getElementById(el.getAttribute('aria-labelledby'));
+    if (labelEl) label = cleanLabel(labelEl.innerText);
+  }
+  
+  // Strategy 4: Walk up DOM to find nearest label-like element
+  if (!label) {
+    label = findNearestLabel(el);
+  }
+  
+  // Strategy 5: Placeholder as last resort
+  if (!label) {
+    label = el.placeholder || el.getAttribute('placeholder');
+  }
+  
+  // Strategy 6: Title attribute
+  if (!label) {
+    label = el.title || el.getAttribute('title');
+  }
+  
+  // Strategy 7: Name/ID as very last resort (humanize it)
+  if (!label) {
+    const name = el.name || el.getAttribute('formcontrolname') || el.getAttribute('ng-reflect-name') || el.id;
+    if (name) {
+      label = humanizeFieldName(name);
+    }
+  }
+  
+  return label;
+}
+
+// Find nearest label by walking up DOM
+function findNearestLabel(el) {
+  // Walk up to find a container that has a label
+  let current = el.parentElement;
+  let depth = 0;
+  const maxDepth = 6; // Don't go too far up
+  
+  while (current && depth < maxDepth) {
+    // Look for label element
+    const labelEl = current.querySelector(':scope > label, :scope > .label, :scope > [class*="label"]:not([class*="label-"]):not([class*="-label"])');
+    if (labelEl && !labelEl.contains(el)) {
+      const text = cleanLabel(labelEl.innerText);
+      if (text && text.length > 0 && text.length < 100) return text;
+    }
+    
+    // Look for heading that might be a label
+    const heading = current.querySelector(':scope > [role="heading"], :scope > h1, :scope > h2, :scope > h3, :scope > h4, :scope > h5, :scope > h6');
+    if (heading && !heading.contains(el)) {
+      const text = cleanLabel(heading.innerText);
+      if (text && text.length > 0 && text.length < 100) return text;
+    }
+    
+    // Look for text that appears before the element
+    const children = Array.from(current.children);
+    const elIndex = children.findIndex(child => child === el || child.contains(el));
+    
+    if (elIndex > 0) {
+      // Check previous siblings for label-like text
+      for (let i = elIndex - 1; i >= 0 && i >= elIndex - 3; i--) {
+        const sibling = children[i];
+        if (sibling.tagName === 'LABEL' || sibling.classList?.contains('label') || sibling.tagName.match(/^H[1-6]$/)) {
+          const text = cleanLabel(sibling.innerText);
+          if (text && text.length > 0 && text.length < 100) return text;
+        }
+        // Check for text content in spans/divs that look like labels
+        if (['SPAN', 'DIV', 'P'].includes(sibling.tagName)) {
+          const text = cleanLabel(sibling.innerText);
+          if (text && text.length > 1 && text.length < 80 && !text.includes('\n')) {
+            // Make sure it's not a value or placeholder-like text
+            if (!sibling.querySelector('input, select, textarea, button')) {
+              return text;
+            }
+          }
+        }
+      }
+    }
+    
+    current = current.parentElement;
+    depth++;
+  }
+  
+  return null;
+}
+
+// Clean label text
+function cleanLabel(text) {
+  if (!text) return null;
+  return text
+    .replace(/\*/g, '')           // Remove required asterisks
+    .replace(/[:：]/g, '')        // Remove colons
+    .replace(/\s+/g, ' ')         // Normalize whitespace
+    .trim();
+}
+
+// Humanize field name (convert camelCase, snake_case, etc. to readable text)
+function humanizeFieldName(name) {
+  return name
+    .replace(/([a-z])([A-Z])/g, '$1 $2')  // camelCase
+    .replace(/[_-]/g, ' ')                 // snake_case, kebab-case
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase()
+    .replace(/^\w/, c => c.toUpperCase()); // Capitalize first letter
+}
+
+// Generate unique key for field
+function generateFieldKey(el, label) {
+  // Priority: formcontrolname > name > id > label-based
+  const formControlName = el.getAttribute('formcontrolname') || el.getAttribute('ng-reflect-name');
+  if (formControlName) return formControlName;
+  
+  if (el.name) return el.name;
+  if (el.id) return el.id;
+  
+  // Generate from label
+  return label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+}
+
+// Get current value of element
+function getElementValue(el) {
+  const tagName = el.tagName.toLowerCase();
+  
+  // Standard inputs
+  if (tagName === 'input') {
+    if (el.type === 'checkbox' || el.type === 'radio') {
+      return el.checked ? 'true' : '';
+    }
+    return el.value || '';
+  }
+  if (tagName === 'textarea') return el.value || '';
+  if (tagName === 'select') return el.value || '';
+  
+  // Contenteditable
+  if (el.getAttribute('contenteditable') === 'true') {
+    return el.innerText?.trim() || '';
+  }
+  
+  // Custom components - try various methods
+  // Check for selected value display
+  const valueDisplay = el.querySelector('.selected-value, .value, [class*="value"]:not([class*="values"]), [class*="label"]:not(.placeholder):not([class*="placeholder"])');
+  if (valueDisplay) {
+    const text = valueDisplay.innerText?.trim();
+    // Make sure it's not a placeholder
+    if (text && !el.querySelector('.placeholder')?.contains(valueDisplay)) {
+      return text;
+    }
+  }
+  
+  // Check for inner input
+  const innerInput = el.querySelector('input:not([type="hidden"])');
+  if (innerInput) return innerInput.value || '';
+  
+  // Check for data attributes
+  const dataValue = el.getAttribute('data-value') || el.getAttribute('ng-reflect-model');
+  if (dataValue) return dataValue;
+  
+  return '';
+}
+
+// Get options for select-like elements
+function getElementOptions(el) {
+  const tagName = el.tagName.toLowerCase();
+  
+  // Standard select
+  if (tagName === 'select') {
+    return Array.from(el.options).map(opt => ({
+      text: opt.text,
+      value: opt.value
+    }));
+  }
+  
+  // Look for option elements or list items
+  const optionSelectors = [
+    '[role="option"]',
+    '[role="listitem"]',
+    'li[data-value]',
+    '.option',
+    '[class*="option"]',
+    '[class*="item"]:not([class*="items"])'
+  ];
+  
+  const options = el.querySelectorAll(optionSelectors.join(', '));
+  if (options.length > 0) {
+    return Array.from(options).map(opt => ({
+      text: opt.innerText?.trim() || opt.getAttribute('aria-label') || '',
+      value: opt.getAttribute('data-value') || opt.getAttribute('value') || opt.innerText?.trim() || ''
+    })).filter(opt => opt.text);
+  }
+  
+  return null;
 }
 
 // Special extraction for Google Forms
@@ -228,29 +564,102 @@ function extractGoogleFormFields() {
       inputEl = radioGroup;
       const radioOptions = radioGroup.querySelectorAll('[role="radio"], [data-value]');
       options = Array.from(radioOptions).map(opt => {
-        const text = opt.innerText?.trim() || opt.getAttribute("data-value") || opt.getAttribute("aria-label");
-        return { text, value: text };
-      }).filter(opt => opt.text);
+        // Try multiple ways to get the radio label text
+        let text = opt.getAttribute("aria-label");
+        
+        // If no aria-label, look for text in nested elements
+        if (!text) {
+          const parent = opt.closest('[data-value], [jscontroller]') || opt.parentElement;
+          if (parent) {
+            const labelSpan = parent.querySelector('span[dir="auto"], span:not([role])');
+            if (labelSpan) text = labelSpan.innerText?.trim();
+          }
+        }
+        
+        // Fallback to innerText
+        if (!text) {
+          text = opt.innerText?.trim();
+        }
+        
+        // Last resort - data-value
+        if (!text) {
+          text = opt.getAttribute("data-value");
+        }
+        
+        return { text: text || "", value: text || "" };
+      }).filter(opt => opt.text && opt.text.length > 0);
       
       const checkedRadio = radioGroup.querySelector('[aria-checked="true"], [data-value][aria-checked="true"]');
       if (checkedRadio) {
-        currentValue = checkedRadio.innerText?.trim() || checkedRadio.getAttribute("data-value");
+        let checkedText = checkedRadio.getAttribute("aria-label");
+        if (!checkedText) {
+          const parent = checkedRadio.closest('[data-value], [jscontroller]') || checkedRadio.parentElement;
+          if (parent) {
+            const labelSpan = parent.querySelector('span[dir="auto"], span:not([role])');
+            if (labelSpan) checkedText = labelSpan.innerText?.trim();
+          }
+        }
+        if (!checkedText) checkedText = checkedRadio.innerText?.trim();
+        currentValue = checkedText || "";
       }
     }
     
     // Checkboxes (multiple select)
+    // Google Forms checkboxes can be in [role="group"] or as individual [role="checkbox"] elements
     const checkboxGroup = container.querySelector('[role="group"], .freebirdFormviewerComponentsQuestionCheckboxRoot');
-    if (!inputEl && checkboxGroup && checkboxGroup.querySelector('[role="checkbox"]')) {
-      fieldType = "checkbox";
-      inputEl = checkboxGroup;
-      const checkboxOptions = checkboxGroup.querySelectorAll('[role="checkbox"]');
-      options = Array.from(checkboxOptions).map(opt => {
-        const text = opt.innerText?.trim() || opt.getAttribute("aria-label");
-        return { text, value: text };
-      }).filter(opt => opt.text);
+    const standaloneCheckboxes = container.querySelectorAll('[role="checkbox"]');
+    
+    if (!inputEl && (checkboxGroup || standaloneCheckboxes.length > 0)) {
+      const checkboxOptions = checkboxGroup 
+        ? checkboxGroup.querySelectorAll('[role="checkbox"]')
+        : standaloneCheckboxes;
       
-      const checkedBoxes = checkboxGroup.querySelectorAll('[role="checkbox"][aria-checked="true"]');
-      currentValue = Array.from(checkedBoxes).map(cb => cb.innerText?.trim()).join(", ");
+      if (checkboxOptions.length > 0) {
+        fieldType = "checkbox";
+        inputEl = checkboxGroup || container;
+        
+        options = Array.from(checkboxOptions).map(opt => {
+          // Try multiple ways to get the checkbox label text
+          let text = opt.getAttribute("aria-label");
+          
+          // If no aria-label, look for text in the checkbox element or its parent
+          if (!text) {
+            // Look for a sibling or child span/div with the label text
+            const parent = opt.closest('[data-value], [jscontroller]') || opt.parentElement;
+            if (parent) {
+              const labelSpan = parent.querySelector('span[dir="auto"], span:not([role])');
+              if (labelSpan) text = labelSpan.innerText?.trim();
+            }
+          }
+          
+          // Fallback to innerText but filter out just whitespace
+          if (!text) {
+            text = opt.innerText?.trim();
+          }
+          
+          // Last resort - data-value attribute
+          if (!text) {
+            text = opt.getAttribute("data-value");
+          }
+          
+          return { text: text || "", value: text || "" };
+        }).filter(opt => opt.text && opt.text.length > 0);
+        
+        // Get currently checked values
+        const checkedBoxes = (checkboxGroup || container).querySelectorAll('[role="checkbox"][aria-checked="true"]');
+        currentValue = Array.from(checkedBoxes).map(cb => {
+          let text = cb.getAttribute("aria-label");
+          if (!text) {
+            const parent = cb.closest('[data-value], [jscontroller]') || cb.parentElement;
+            if (parent) {
+              const labelSpan = parent.querySelector('span[dir="auto"], span:not([role])');
+              if (labelSpan) text = labelSpan.innerText?.trim();
+            }
+          }
+          if (!text) text = cb.innerText?.trim();
+          return text;
+        }).filter(Boolean).join(", ");
+      }
     }
     
     // Dropdown
@@ -291,6 +700,52 @@ function extractGoogleFormFields() {
       currentValue = timeInput.value || "";
     }
     
+    // File upload - Google Forms file upload detection
+    // Google Forms uses a button/div for file uploads, not standard input[type="file"]
+    const fileUpload = container.querySelector(
+      '[data-file-upload], ' +
+      '[aria-label*="file" i], ' +
+      '[aria-label*="upload" i], ' +
+      '.freebirdFormviewerComponentsQuestionFileUpload, ' +
+      '[jscontroller][jsaction*="upload"], ' +
+      'button[aria-label*="Add file" i], ' +
+      '[role="button"][aria-label*="file" i]'
+    );
+    
+    // Also check if the question text mentions file/upload/document/resume/cv
+    const isFileQuestion = label && /\b(file|upload|document|resume|cv|attachment|pdf|image|photo|picture)\b/i.test(label);
+    
+    if (!inputEl && (fileUpload || isFileQuestion)) {
+      fieldType = "file";
+      inputEl = fileUpload || container;
+      currentValue = "(Manual upload required)";
+      
+      // Check if a file has been uploaded (look for file name display)
+      const uploadedFile = container.querySelector('[class*="filename"], [class*="file-name"], [data-file-name]');
+      if (uploadedFile && uploadedFile.innerText?.trim()) {
+        currentValue = uploadedFile.innerText?.trim();
+      }
+      
+      console.log(`[Autofill] Detected Google Forms file upload field: "${label}" - requires manual upload`);
+    }
+    
+    // Linear scale (1-5, 1-10 ratings)
+    const linearScale = container.querySelector('[role="radiogroup"][aria-label*="scale" i], .freebirdFormviewerComponentsQuestionScaleRoot');
+    if (!inputEl && linearScale) {
+      fieldType = "scale";
+      inputEl = linearScale;
+      const scaleOptions = linearScale.querySelectorAll('[role="radio"]');
+      options = Array.from(scaleOptions).map(opt => {
+        const value = opt.getAttribute('data-value') || opt.getAttribute('aria-label') || opt.innerText?.trim();
+        return { text: value, value: value };
+      }).filter(opt => opt.text);
+      
+      const selectedScale = linearScale.querySelector('[role="radio"][aria-checked="true"]');
+      if (selectedScale) {
+        currentValue = selectedScale.getAttribute('data-value') || selectedScale.innerText?.trim() || "";
+      }
+    }
+    
     // If we found a valid field, add it
     if (label) {
       const key = label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
@@ -314,6 +769,8 @@ function extractGoogleFormFields() {
 }
 
 function fillForm(values, fieldsMeta = []) {
+  console.log('[Autofill] fillForm called with', Object.keys(values).length, 'values');
+  
   // Check if this is a Google Form
   const isGoogleForm = window.location.hostname.includes('docs.google.com') && window.location.pathname.includes('/forms/');
   
@@ -322,100 +779,542 @@ function fillForm(values, fieldsMeta = []) {
     return;
   }
   
+  // SMART FILLING: For each value, find the best matching element
   for (const [key, value] of Object.entries(values)) {
-    // 1. Try to find the element by ID, Name, or Key match with some fuzzy logic
-    let el = document.getElementById(key) ||
-      document.getElementsByName(key)[0] ||
-      document.querySelector(`[data-test-id*="${key}" i]`) ||
-      document.querySelector(`[data-testid*="${key}" i]`);
-
-    // 2. Fuzzy search for custom framework elements or labels
-    if (!el) {
-      el = Array.from(document.querySelectorAll("input, textarea, select, [role='combobox'], [role='textbox'], [contenteditable='true']"))
-        .find(input => {
-          const l = input.getAttribute("aria-label") || "";
-          const p = input.placeholder || "";
-          const lblId = input.getAttribute("aria-labelledby");
-          const lblTxt = (lblId ? document.getElementById(lblId)?.innerText : "") || "";
-
-          return input.id?.toLowerCase() === key.toLowerCase() ||
-            input.name?.toLowerCase() === key.toLowerCase() ||
-            l.toLowerCase().includes(key.toLowerCase()) ||
-            p.toLowerCase().includes(key.toLowerCase()) ||
-            lblTxt.toLowerCase().includes(key.toLowerCase().replace(/_/g, " "));
-        });
-    }
+    if (value === null || value === undefined || value === '') continue;
     
-    // 3. Try to find by label text match
-    if (!el) {
-      const keyNormalized = key.toLowerCase().replace(/_/g, ' ');
-      const allContainers = document.querySelectorAll('.form-group, .field-wrapper, [role="listitem"], [jscontroller]');
-      for (const container of allContainers) {
-        const labelEl = container.querySelector('label, [role="heading"], .question-title');
-        if (labelEl && labelEl.innerText.toLowerCase().includes(keyNormalized)) {
-          el = container.querySelector('input, textarea, select, [role="textbox"], [contenteditable="true"]');
-          if (el) break;
-        }
-      }
-    }
-
-    if (!el) continue;
-
-    // Skip file inputs immediately - browser security prevents programmatic file selection
-    if (el.tagName === "INPUT" && el.type === "file") {
-      console.warn(`Skipping file input: ${key}. Browser security prevents programmatic file selection.`);
+    console.log(`[Autofill] Filling key: "${key}" with value: "${value}"`);
+    
+    // Find the element using smart matching
+    const element = smartFindElement(key, fieldsMeta);
+    
+    if (!element) {
+      console.log(`[Autofill] No element found for key: ${key}`);
       continue;
     }
+    
+    console.log(`[Autofill] Found element:`, element.tagName, element.className);
+    
+    // Fill the element using smart filling
+    smartFillElement(element, value);
+  }
+}
 
-    // Handle standard SELECT
-    if (el.tagName === "SELECT") {
-      el.value = value;
-      if (el.value !== String(value)) {
-        const option = Array.from(el.options).find(opt =>
-          opt.text.toLowerCase().trim() === String(value).toLowerCase().trim() ||
-          opt.text.toLowerCase().includes(String(value).toLowerCase())
-        );
-        if (option) el.value = option.value;
+// Smart element finder - uses multiple strategies
+function smartFindElement(key, fieldsMeta = []) {
+  const keyLower = key.toLowerCase();
+  const keyNormalized = key.toLowerCase().replace(/[_-]/g, ' ').replace(/\s+/g, ' ').trim();
+  
+  // Strategy 1: Direct ID/Name match
+  let el = document.getElementById(key) || document.getElementsByName(key)[0];
+  if (el && isValidFormElement(el)) return el;
+  
+  // Strategy 2: Form control name (Angular/React)
+  el = document.querySelector(`[formcontrolname="${key}"], [ng-reflect-name="${key}"], [name="${key}"], [data-name="${key}"]`);
+  if (el && isValidFormElement(el)) return el;
+  
+  // Strategy 3: Case-insensitive ID/Name
+  el = document.querySelector(`[id="${key}" i], [name="${key}" i]`);
+  if (el && isValidFormElement(el)) return el;
+  
+  // Strategy 4: Find by label association
+  el = findElementByLabel(keyNormalized);
+  if (el) return el;
+  
+  // Strategy 5: Find by aria-label
+  el = document.querySelector(`[aria-label*="${keyNormalized}" i]`);
+  if (el && isValidFormElement(el)) return el;
+  
+  // Strategy 6: Find by placeholder
+  el = document.querySelector(`[placeholder*="${keyNormalized}" i]`);
+  if (el && isValidFormElement(el)) return el;
+  
+  // Strategy 7: Fuzzy match using field metadata
+  if (fieldsMeta && fieldsMeta.length > 0) {
+    const matchingMeta = fieldsMeta.find(f => f.key === key || f.label?.toLowerCase().includes(keyNormalized));
+    if (matchingMeta && matchingMeta.elementIndex !== undefined) {
+      const allElements = findAllInteractiveElements();
+      if (allElements[matchingMeta.elementIndex]) {
+        return allElements[matchingMeta.elementIndex];
       }
     }
-    // Handle contenteditable / role="textbox" (dynamic inputs)
-    else if (el.isContentEditable || el.getAttribute("role") === "textbox") {
-      el.focus();
-      el.innerText = value;
-      // Also try setting textContent for some frameworks
-      el.textContent = value;
-    }
-    // Handle standard INPUT/TEXTAREA
-    else if (el.tagName === "INPUT" || el.tagName === "TEXTAREA") {
-      if (el.type === "file") {
-        console.warn(`Skipping file input: ${key}. Browser security prevents programmatic file selection.`);
-        continue;
-      }
+  }
+  
+  // Strategy 8: Walk DOM looking for matching label text
+  el = findElementByLabelText(keyNormalized);
+  if (el) return el;
+  
+  return null;
+}
 
-      if (el.type === "checkbox") {
-        el.checked = !!value;
-      } else if (el.type === "radio") {
-        const radio = document.querySelector(`input[name="${el.name}"][value="${value}"]`) ||
-          document.querySelector(`input[name="${el.name}"]`);
-        if (radio) radio.checked = true;
-      } else if (el.type === "date") {
-        let dateVal = value;
-        if (value && value.includes("T")) dateVal = value.split("T")[0];
-        el.value = dateVal;
-      } else {
-        const prototype = el.tagName === "INPUT" ? window.HTMLInputElement.prototype : window.HTMLTextAreaElement.prototype;
-        const descriptor = Object.getOwnPropertyDescriptor(prototype, "value");
-        if (descriptor && descriptor.set) {
-          descriptor.set.call(el, value);
-        } else {
-          el.value = value;
+// Check if element is a valid form element
+function isValidFormElement(el) {
+  if (!el) return false;
+  const tagName = el.tagName.toLowerCase();
+  
+  // Standard form elements
+  if (['input', 'textarea', 'select'].includes(tagName)) {
+    const type = el.type?.toLowerCase();
+    return !['hidden', 'submit', 'button', 'reset', 'image'].includes(type);
+  }
+  
+  // Custom components
+  if (tagName.includes('-')) return true; // Web components
+  
+  // ARIA roles
+  const role = el.getAttribute('role');
+  if (['textbox', 'combobox', 'listbox', 'checkbox', 'radio', 'switch', 'slider', 'spinbutton'].includes(role)) return true;
+  
+  // Contenteditable
+  if (el.getAttribute('contenteditable') === 'true') return true;
+  
+  return false;
+}
+
+// Find element by label association
+function findElementByLabel(labelText) {
+  // Find all labels
+  const labels = document.querySelectorAll('label');
+  
+  for (const label of labels) {
+    const text = cleanLabel(label.innerText);
+    if (!text) continue;
+    
+    // Check for fuzzy match
+    if (fuzzyMatch(text, labelText)) {
+      // Label has 'for' attribute
+      if (label.htmlFor) {
+        const el = document.getElementById(label.htmlFor);
+        if (el && isValidFormElement(el)) return el;
+      }
+      
+      // Label wraps the input
+      const wrappedInput = label.querySelector('input, textarea, select');
+      if (wrappedInput && isValidFormElement(wrappedInput)) return wrappedInput;
+      
+      // Find input in same container
+      const container = label.closest('div, .form-group, .form__group, .field, [class*="field"]');
+      if (container) {
+        const input = container.querySelector('input:not([type="hidden"]):not([type="submit"]), textarea, select, [contenteditable="true"], [role="textbox"], [role="combobox"]');
+        if (input && isValidFormElement(input)) return input;
+        
+        // Also check for custom components
+        const customEl = container.querySelector('[class*="dropdown"], [class*="select"], [class*="picker"], [class*="input"]');
+        if (customEl && isInteractiveComponent(customEl)) return customEl;
+      }
+    }
+  }
+  
+  return null;
+}
+
+// Find element by walking DOM and matching label text
+function findElementByLabelText(labelText) {
+  // Get all potential containers
+  const containers = document.querySelectorAll('div, section, fieldset, [class*="field"], [class*="group"], [class*="form"]');
+  
+  for (const container of containers) {
+    // Skip very large containers (likely page wrappers)
+    if (container.querySelectorAll('input, textarea, select').length > 10) continue;
+    
+    // Look for label-like text
+    const textElements = container.querySelectorAll('label, span, p, div, h1, h2, h3, h4, h5, h6');
+    
+    for (const textEl of textElements) {
+      // Skip if contains form elements
+      if (textEl.querySelector('input, textarea, select')) continue;
+      
+      const text = cleanLabel(textEl.innerText);
+      if (!text || text.length > 100) continue;
+      
+      if (fuzzyMatch(text, labelText)) {
+        // Find nearest input
+        const input = container.querySelector('input:not([type="hidden"]):not([type="submit"]), textarea, select, [contenteditable="true"], [role="textbox"], [role="combobox"]');
+        if (input && isValidFormElement(input)) return input;
+        
+        // Check for custom components
+        const allChildren = container.querySelectorAll('*');
+        for (const child of allChildren) {
+          if (child.tagName.toLowerCase().includes('-') && isFormComponent(child)) {
+            return child;
+          }
         }
       }
     }
-
-    // Trigger full event chain to notify frameworks (React, Vue, Angular, etc.)
-    triggerInputEvents(el);
   }
+  
+  return null;
+}
+
+// Fuzzy match two strings
+function fuzzyMatch(str1, str2) {
+  if (!str1 || !str2) return false;
+  
+  const s1 = str1.toLowerCase().trim();
+  const s2 = str2.toLowerCase().trim();
+  
+  // Exact match
+  if (s1 === s2) return true;
+  
+  // Contains match
+  if (s1.includes(s2) || s2.includes(s1)) return true;
+  
+  // Word-based match
+  const words1 = s1.split(/\s+/).filter(w => w.length > 2);
+  const words2 = s2.split(/\s+/).filter(w => w.length > 2);
+  
+  // Check if significant words match
+  const matchCount = words1.filter(w1 => words2.some(w2 => w1.includes(w2) || w2.includes(w1))).length;
+  const threshold = Math.min(words1.length, words2.length) * 0.5;
+  
+  return matchCount >= threshold && matchCount > 0;
+}
+
+// Smart fill element - handles any type of form element
+function smartFillElement(el, value) {
+  const tagName = el.tagName.toLowerCase();
+  
+  // Skip file inputs
+  if (tagName === 'input' && el.type === 'file') {
+    console.warn(`[Autofill] Skipping file input - browser security prevents programmatic file selection`);
+    return;
+  }
+  
+  // Standard INPUT
+  if (tagName === 'input') {
+    fillStandardInput(el, value);
+    return;
+  }
+  
+  // TEXTAREA
+  if (tagName === 'textarea') {
+    setInputValue(el, value);
+    return;
+  }
+  
+  // Standard SELECT
+  if (tagName === 'select') {
+    fillStandardSelect(el, value);
+    return;
+  }
+  
+  // Contenteditable
+  if (el.getAttribute('contenteditable') === 'true') {
+    el.focus();
+    el.innerText = value;
+    triggerInputEvents(el);
+    return;
+  }
+  
+  // Custom components - detect type and fill accordingly
+  const componentType = detectComponentType(el);
+  console.log(`[Autofill] Detected component type: ${componentType}`);
+  
+  switch (componentType) {
+    case 'dropdown':
+    case 'select':
+    case 'combobox':
+      fillCustomDropdown(el, value);
+      break;
+    case 'checkbox':
+      fillCustomCheckbox(el, value);
+      break;
+    case 'radio':
+      fillCustomRadio(el, value);
+      break;
+    case 'date':
+    case 'calendar':
+      fillCustomDatePicker(el, value);
+      break;
+    case 'autocomplete':
+      fillCustomAutocomplete(el, value);
+      break;
+    default:
+      // Try to find inner input
+      const innerInput = el.querySelector('input:not([type="hidden"]), textarea');
+      if (innerInput) {
+        setInputValue(innerInput, value);
+      } else {
+        // Last resort - try clicking and typing
+        fillBySimulation(el, value);
+      }
+  }
+}
+
+// Fill standard input element
+function fillStandardInput(el, value) {
+  const type = el.type?.toLowerCase() || 'text';
+  
+  switch (type) {
+    case 'checkbox':
+      const shouldCheck = value === true || value === 'true' || value === 'yes' || value === '1' || value === 'on';
+      if (el.checked !== shouldCheck) {
+        el.click();
+      }
+      triggerInputEvents(el);
+      break;
+      
+    case 'radio':
+      // Find the radio with matching value in the same group
+      const radioGroup = document.querySelectorAll(`input[type="radio"][name="${el.name}"]`);
+      for (const radio of radioGroup) {
+        if (radio.value.toLowerCase() === String(value).toLowerCase()) {
+          radio.click();
+          triggerInputEvents(radio);
+          break;
+        }
+      }
+      break;
+      
+    case 'date':
+      let dateVal = value;
+      if (value && value.includes('T')) dateVal = value.split('T')[0];
+      setInputValue(el, dateVal);
+      break;
+      
+    case 'number':
+      setInputValue(el, String(value).replace(/[^\d.-]/g, ''));
+      break;
+      
+    default:
+      setInputValue(el, value);
+  }
+}
+
+// Fill standard select element
+function fillStandardSelect(el, value) {
+  const valueLower = String(value).toLowerCase().trim();
+  
+  // Try exact value match
+  el.value = value;
+  
+  // If that didn't work, try matching option text
+  if (el.value !== String(value)) {
+    const option = Array.from(el.options).find(opt => 
+      opt.value.toLowerCase().trim() === valueLower ||
+      opt.text.toLowerCase().trim() === valueLower ||
+      opt.text.toLowerCase().includes(valueLower) ||
+      valueLower.includes(opt.text.toLowerCase())
+    );
+    if (option) el.value = option.value;
+  }
+  
+  triggerInputEvents(el);
+}
+
+// Detect custom component type
+function detectComponentType(el) {
+  const tagName = el.tagName.toLowerCase();
+  const className = (el.className?.toLowerCase?.() || '').toString();
+  const role = el.getAttribute('role');
+  
+  // Check ARIA role first
+  if (role === 'combobox' || role === 'listbox') return 'dropdown';
+  if (role === 'checkbox' || role === 'switch') return 'checkbox';
+  if (role === 'radio' || role === 'radiogroup') return 'radio';
+  
+  // Check tag name and class
+  const combined = tagName + ' ' + className;
+  
+  if (combined.includes('dropdown') || combined.includes('select') || combined.includes('combobox') || combined.includes('listbox')) return 'dropdown';
+  if (combined.includes('calendar') || combined.includes('datepicker') || combined.includes('date-picker')) return 'date';
+  if (combined.includes('checkbox') || combined.includes('check-box')) return 'checkbox';
+  if (combined.includes('radio')) return 'radio';
+  if (combined.includes('autocomplete') || combined.includes('typeahead')) return 'autocomplete';
+  
+  return 'unknown';
+}
+
+// Fill custom dropdown/select component
+function fillCustomDropdown(el, value) {
+  console.log(`[Autofill] Filling custom dropdown with: ${value}`);
+  
+  // Step 1: Click to open the dropdown
+  clickElement(el);
+  
+  // Step 2: Wait for options to appear and select
+  setTimeout(() => {
+    const valueLower = String(value).toLowerCase().trim();
+    
+    // Find options panel (could be anywhere in DOM)
+    const optionSelectors = [
+      '[role="option"]',
+      '[role="listbox"] > *',
+      '.p-dropdown-item',
+      '.p-dropdown-items li',
+      '.ng-option',
+      '.mat-option',
+      '[class*="option"]',
+      '[class*="item"]:not([class*="items"])',
+      'li[data-value]',
+      'li:not([class*="header"]):not([class*="footer"])'
+    ];
+    
+    let optionFound = false;
+    
+    for (const selector of optionSelectors) {
+      const options = document.querySelectorAll(selector);
+      
+      for (const option of options) {
+        // Skip hidden options
+        if (isHiddenOrDisabled(option)) continue;
+        
+        const optionText = (option.innerText || option.getAttribute('aria-label') || option.getAttribute('data-value') || '').toLowerCase().trim();
+        
+        if (optionText === valueLower || optionText.includes(valueLower) || valueLower.includes(optionText)) {
+          console.log(`[Autofill] Found matching option: ${optionText}`);
+          clickElement(option);
+          optionFound = true;
+          break;
+        }
+      }
+      
+      if (optionFound) break;
+    }
+    
+    if (!optionFound) {
+      console.log(`[Autofill] No matching option found for: ${value}`);
+      // Try typing the value
+      const input = el.querySelector('input') || document.activeElement;
+      if (input && (input.tagName === 'INPUT' || input.getAttribute('contenteditable'))) {
+        setInputValue(input, value);
+      }
+    }
+  }, 200);
+}
+
+// Fill custom checkbox
+function fillCustomCheckbox(el, value) {
+  const shouldCheck = value === true || value === 'true' || value === 'yes' || value === '1' || value === 'on';
+  const isChecked = el.getAttribute('aria-checked') === 'true' || 
+                    el.classList.contains('checked') || 
+                    el.classList.contains('p-checkbox-checked') ||
+                    el.querySelector('.checked, [class*="checked"]') !== null;
+  
+  if (shouldCheck !== isChecked) {
+    clickElement(el);
+  }
+}
+
+// Fill custom radio
+function fillCustomRadio(el, value) {
+  const valueLower = String(value).toLowerCase().trim();
+  
+  // Find all radio options in the group
+  const container = el.closest('[role="radiogroup"], .radio-group, [class*="radio"]') || el.parentElement;
+  const radios = container.querySelectorAll('[role="radio"], [class*="radio"]');
+  
+  for (const radio of radios) {
+    const radioText = (radio.innerText || radio.getAttribute('aria-label') || radio.getAttribute('value') || '').toLowerCase().trim();
+    
+    if (radioText === valueLower || radioText.includes(valueLower)) {
+      clickElement(radio);
+      break;
+    }
+  }
+}
+
+// Fill custom date picker
+function fillCustomDatePicker(el, value) {
+  // Try to find inner input
+  const input = el.querySelector('input');
+  if (input) {
+    let dateVal = value;
+    if (value && value.includes('T')) dateVal = value.split('T')[0];
+    setInputValue(input, dateVal);
+  } else {
+    // Click and type
+    clickElement(el);
+    setTimeout(() => {
+      const activeInput = document.activeElement;
+      if (activeInput && activeInput.tagName === 'INPUT') {
+        setInputValue(activeInput, value);
+      }
+    }, 100);
+  }
+}
+
+// Fill autocomplete
+function fillCustomAutocomplete(el, value) {
+  const input = el.querySelector('input') || el;
+  if (input) {
+    setInputValue(input, value);
+    // Trigger search
+    setTimeout(() => {
+      const firstOption = document.querySelector('[role="option"], .autocomplete-option, [class*="suggestion"]');
+      if (firstOption) {
+        clickElement(firstOption);
+      }
+    }, 300);
+  }
+}
+
+// Fill by simulation (last resort)
+function fillBySimulation(el, value) {
+  console.log(`[Autofill] Using simulation for element`);
+  
+  // Focus and click
+  el.focus();
+  clickElement(el);
+  
+  // Wait a bit then try to type
+  setTimeout(() => {
+    const activeEl = document.activeElement;
+    if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.getAttribute('contenteditable'))) {
+      setInputValue(activeEl, value);
+    }
+  }, 100);
+}
+
+// Click element with proper event simulation
+function clickElement(el) {
+  const rect = el.getBoundingClientRect();
+  const x = rect.left + rect.width / 2;
+  const y = rect.top + rect.height / 2;
+  
+  const eventOptions = {
+    bubbles: true,
+    cancelable: true,
+    view: window,
+    clientX: x,
+    clientY: y
+  };
+  
+  el.dispatchEvent(new MouseEvent('mouseenter', eventOptions));
+  el.dispatchEvent(new MouseEvent('mouseover', eventOptions));
+  el.dispatchEvent(new MouseEvent('mousedown', eventOptions));
+  el.dispatchEvent(new MouseEvent('mouseup', eventOptions));
+  el.dispatchEvent(new MouseEvent('click', eventOptions));
+}
+
+// Helper to get text from Google Form radio/checkbox options
+function getGoogleFormOptionText(option) {
+  // Try aria-label first
+  let text = option.getAttribute("aria-label");
+  
+  // Look for text in nested span elements
+  if (!text) {
+    const parent = option.closest('[data-value], [jscontroller]') || option.parentElement;
+    if (parent) {
+      const labelSpan = parent.querySelector('span[dir="auto"], span:not([role]):not([aria-hidden])');
+      if (labelSpan) text = labelSpan.innerText?.trim();
+    }
+  }
+  
+  // Try innerText but be careful of nested elements
+  if (!text) {
+    // Clone and remove hidden elements to get clean text
+    const clone = option.cloneNode(true);
+    clone.querySelectorAll('[aria-hidden="true"]').forEach(el => el.remove());
+    text = clone.innerText?.trim();
+  }
+  
+  // Fallback to data-value
+  if (!text) {
+    text = option.getAttribute("data-value");
+  }
+  
+  return text || "";
 }
 
 // Helper to trigger all necessary events for framework compatibility
@@ -423,27 +1322,89 @@ function triggerInputEvents(el) {
   const eventOptions = { bubbles: true, cancelable: true };
   
   // Focus first
+  el.focus();
   el.dispatchEvent(new FocusEvent("focus", eventOptions));
   el.dispatchEvent(new FocusEvent("focusin", eventOptions));
   
-  // Input events
+  // Input events - these are critical for Angular/React
   el.dispatchEvent(new Event("input", eventOptions));
-  el.dispatchEvent(new InputEvent("input", { bubbles: true, cancelable: true, inputType: "insertText" }));
+  el.dispatchEvent(new InputEvent("input", { 
+    bubbles: true, 
+    cancelable: true, 
+    inputType: "insertText",
+    data: el.value 
+  }));
   el.dispatchEvent(new Event("change", eventOptions));
   
   // Keyboard events (helps with some frameworks)
   el.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "a" }));
+  el.dispatchEvent(new KeyboardEvent("keypress", { bubbles: true, cancelable: true, key: "a" }));
   el.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, cancelable: true, key: "a" }));
   
-  // Blur
+  // Blur to trigger validation
   el.dispatchEvent(new FocusEvent("blur", eventOptions));
   el.dispatchEvent(new FocusEvent("focusout", eventOptions));
 
-  // For Material UI - notify the floating label to shrink correctly
+  // For Material UI
   if (el.classList.contains('MuiInputBase-input') || el.classList.contains('MuiSelect-nativeInput')) {
     const parent = el.closest('.MuiInputBase-root') || el.parentElement;
     parent?.dispatchEvent(new Event('click', eventOptions));
   }
+  
+  // For Angular - trigger ngModel and reactive forms update
+  el.dispatchEvent(new Event('ngModelChange', eventOptions));
+  
+  // Try to trigger Angular's change detection via zone
+  try {
+    const ngZone = window.ng?.probe?.(el)?.injector?.get?.(window.ng?.coreTokens?.NgZone);
+    if (ngZone) ngZone.run(() => {});
+  } catch (e) {}
+}
+
+// Set value on input with framework compatibility
+function setInputValue(input, value) {
+  if (!input) return;
+  
+  const tagName = input.tagName?.toUpperCase();
+  
+  try {
+    // Get the appropriate prototype based on element type
+    let descriptor = null;
+    
+    if (tagName === 'INPUT') {
+      descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+    } else if (tagName === 'TEXTAREA') {
+      descriptor = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value');
+    } else if (tagName === 'SELECT') {
+      descriptor = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value');
+    }
+    
+    // Use native setter to bypass framework getters/setters
+    if (descriptor && descriptor.set) {
+      descriptor.set.call(input, value);
+    } else {
+      // Direct assignment fallback
+      input.value = value;
+    }
+  } catch (e) {
+    // If native setter fails, use direct assignment
+    console.log('[Autofill] Native setter failed, using direct assignment');
+    try {
+      input.value = value;
+    } catch (e2) {
+      console.warn('[Autofill] Could not set value on element:', e2);
+    }
+  }
+  
+  // Also set via attribute for some frameworks (but not for select)
+  if (tagName !== 'SELECT') {
+    try {
+      input.setAttribute('value', value);
+    } catch (e) {}
+  }
+  
+  // Trigger events
+  triggerInputEvents(input);
 }
 
 // Special fill function for Google Forms
@@ -516,8 +1477,9 @@ function fillGoogleForm(values, fieldsMeta = []) {
     if (radioGroup) {
       const radioOptions = radioGroup.querySelectorAll('[role="radio"], [data-value]');
       for (const option of radioOptions) {
-        const optionText = option.innerText?.toLowerCase().trim() || option.getAttribute("data-value")?.toLowerCase() || "";
-        if (optionText === value.toLowerCase().trim() || optionText.includes(value.toLowerCase().trim()) || value.toLowerCase().trim().includes(optionText)) {
+        const optionText = getGoogleFormOptionText(option).toLowerCase();
+        const valueNorm = value.toLowerCase().trim();
+        if (optionText === valueNorm || optionText.includes(valueNorm) || valueNorm.includes(optionText)) {
           option.click();
           break;
         }
@@ -526,12 +1488,16 @@ function fillGoogleForm(values, fieldsMeta = []) {
     }
     
     // Checkboxes (multiple select) - can have multiple values
+    // Look for checkboxes in [role="group"] or standalone
     const checkboxGroup = targetContainer.querySelector('[role="group"]');
-    if (checkboxGroup && checkboxGroup.querySelector('[role="checkbox"]')) {
+    const checkboxOptions = checkboxGroup 
+      ? checkboxGroup.querySelectorAll('[role="checkbox"]')
+      : targetContainer.querySelectorAll('[role="checkbox"]');
+    
+    if (checkboxOptions.length > 0) {
       const valuesToCheck = value.split(',').map(v => v.trim().toLowerCase());
-      const checkboxOptions = checkboxGroup.querySelectorAll('[role="checkbox"]');
       for (const option of checkboxOptions) {
-        const optionText = option.innerText?.toLowerCase().trim() || option.getAttribute("aria-label")?.toLowerCase() || "";
+        const optionText = getGoogleFormOptionText(option).toLowerCase();
         if (valuesToCheck.some(v => optionText.includes(v) || v.includes(optionText))) {
           if (option.getAttribute("aria-checked") !== "true") {
             option.click();
@@ -582,6 +1548,36 @@ function fillGoogleForm(values, fieldsMeta = []) {
       if (value && value.includes("T")) dateVal = value.split("T")[0];
       dateInput.value = dateVal;
       triggerInputEvents(dateInput);
+      continue;
+    }
+    
+    // Linear scale (1-5, 1-10 ratings)
+    const linearScale = targetContainer.querySelector('[role="radiogroup"]');
+    if (linearScale) {
+      const scaleOptions = linearScale.querySelectorAll('[role="radio"]');
+      const valueNum = String(value).trim();
+      for (const option of scaleOptions) {
+        const optionValue = option.getAttribute('data-value') || option.getAttribute('aria-label') || option.innerText?.trim();
+        if (optionValue === valueNum) {
+          option.click();
+          break;
+        }
+      }
+      continue;
+    }
+    
+    // File upload - Google Forms file uploads cannot be filled programmatically
+    // They require user interaction due to browser security
+    const fileUpload = targetContainer.querySelector(
+      '[data-file-upload], ' +
+      '[aria-label*="file" i], ' +
+      '[aria-label*="upload" i], ' +
+      'button[aria-label*="Add file" i]'
+    );
+    if (fileUpload) {
+      console.log(`[Autofill] File upload field "${key}" detected - requires manual upload due to browser security`);
+      // We can't programmatically fill file uploads in Google Forms
+      // The user must manually click and select the file
       continue;
     }
   }

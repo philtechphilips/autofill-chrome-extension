@@ -231,16 +231,30 @@ function renderPreviewList() {
     
     // Handle file inputs specially
     if (fieldType === "file") {
-      row.innerHTML = `
-        <span class="preview-key" title="${escapeAttr(label)}">${escapeHtml(label)}</span>
-        <input type="file" class="file-input" style="flex: 1; font-size: 10px;">
-      `;
-      const fileInput = row.querySelector(".file-input");
-      fileInput.addEventListener("change", (e) => {
-        if (e.target.files && e.target.files[0]) {
-          pendingFiles[key] = e.target.files[0];
-        }
-      });
+      // Check if this is a Google Form (file uploads can't be automated there)
+      const isGoogleFormFile = field.isGoogleForm === true;
+      
+      if (isGoogleFormFile) {
+        // Google Forms file uploads require manual interaction
+        row.innerHTML = `
+          <span class="preview-key" title="${escapeAttr(label)}">${escapeHtml(label)}</span>
+          <span class="preview-val" style="flex: 1; font-size: 10px; color: #888; font-style: italic;">
+            Manual upload required (Google Forms security)
+          </span>
+        `;
+      } else {
+        // Standard HTML file input - can be filled
+        row.innerHTML = `
+          <span class="preview-key" title="${escapeAttr(label)}">${escapeHtml(label)}</span>
+          <input type="file" class="file-input" style="flex: 1; font-size: 10px;">
+        `;
+        const fileInput = row.querySelector(".file-input");
+        fileInput.addEventListener("change", (e) => {
+          if (e.target.files && e.target.files[0]) {
+            pendingFiles[key] = e.target.files[0];
+          }
+        });
+      }
       previewList.appendChild(row);
       continue;
     }
