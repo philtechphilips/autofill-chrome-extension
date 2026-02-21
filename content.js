@@ -3,8 +3,6 @@ function extractFields() {
   const processedElements = new WeakSet();
   const processedKeys = new Set();
   
-  console.log('[Autofill] Starting smart field extraction...');
-  
   // Detect if this is a Google Form
   const isGoogleForm = window.location.hostname.includes('docs.google.com') && window.location.pathname.includes('/forms/');
 
@@ -24,7 +22,6 @@ function extractFields() {
   
   // SMART CRAWLING: Find ALL interactive elements that could be form fields
   const interactiveElements = findAllInteractiveElements();
-  console.log(`[Autofill] Found ${interactiveElements.length} interactive elements`);
   
   interactiveElements.forEach((el, index) => {
     if (processedElements.has(el)) return;
@@ -34,11 +31,9 @@ function extractFields() {
     if (field && field.label && !processedKeys.has(field.key)) {
       processedKeys.add(field.key);
       fields.push(field);
-      console.log(`[Autofill] Extracted: "${field.label}" (${field.type}) key=${field.key}`);
     }
   });
   
-  console.log(`[Autofill] Total fields extracted: ${fields.length}`);
 
   // Extract Form Context
   let formTitle = document.querySelector("h1, [role='heading'][aria-level='1'], .page-title, .form-title")?.innerText || "";
@@ -726,7 +721,6 @@ function extractGoogleFormFields() {
         currentValue = uploadedFile.innerText?.trim();
       }
       
-      console.log(`[Autofill] Detected Google Forms file upload field: "${label}" - requires manual upload`);
     }
     
     // Linear scale (1-5, 1-10 ratings)
@@ -769,8 +763,6 @@ function extractGoogleFormFields() {
 }
 
 function fillForm(values, fieldsMeta = []) {
-  console.log('[Autofill] fillForm called with', Object.keys(values).length, 'values');
-  
   // Check if this is a Google Form
   const isGoogleForm = window.location.hostname.includes('docs.google.com') && window.location.pathname.includes('/forms/');
   
@@ -783,17 +775,14 @@ function fillForm(values, fieldsMeta = []) {
   for (const [key, value] of Object.entries(values)) {
     if (value === null || value === undefined || value === '') continue;
     
-    console.log(`[Autofill] Filling key: "${key}" with value: "${value}"`);
     
     // Find the element using smart matching
     const element = smartFindElement(key, fieldsMeta);
     
     if (!element) {
-      console.log(`[Autofill] No element found for key: ${key}`);
       continue;
     }
     
-    console.log(`[Autofill] Found element:`, element.tagName, element.className);
     
     // Fill the element using smart filling
     smartFillElement(element, value);
@@ -976,7 +965,6 @@ function smartFillElement(el, value) {
   
   // Skip file inputs
   if (tagName === 'input' && el.type === 'file') {
-    console.warn(`[Autofill] Skipping file input - browser security prevents programmatic file selection`);
     return;
   }
   
@@ -1008,7 +996,6 @@ function smartFillElement(el, value) {
   
   // Custom components - detect type and fill accordingly
   const componentType = detectComponentType(el);
-  console.log(`[Autofill] Detected component type: ${componentType}`);
   
   switch (componentType) {
     case 'dropdown':
@@ -1127,8 +1114,6 @@ function detectComponentType(el) {
 
 // Fill custom dropdown/select component
 function fillCustomDropdown(el, value) {
-  console.log(`[Autofill] Filling custom dropdown with: ${value}`);
-  
   // Step 1: Click to open the dropdown
   clickElement(el);
   
@@ -1162,7 +1147,6 @@ function fillCustomDropdown(el, value) {
         const optionText = (option.innerText || option.getAttribute('aria-label') || option.getAttribute('data-value') || '').toLowerCase().trim();
         
         if (optionText === valueLower || optionText.includes(valueLower) || valueLower.includes(optionText)) {
-          console.log(`[Autofill] Found matching option: ${optionText}`);
           clickElement(option);
           optionFound = true;
           break;
@@ -1173,7 +1157,6 @@ function fillCustomDropdown(el, value) {
     }
     
     if (!optionFound) {
-      console.log(`[Autofill] No matching option found for: ${value}`);
       // Try typing the value
       const input = el.querySelector('input') || document.activeElement;
       if (input && (input.tagName === 'INPUT' || input.getAttribute('contenteditable'))) {
@@ -1251,8 +1234,6 @@ function fillCustomAutocomplete(el, value) {
 
 // Fill by simulation (last resort)
 function fillBySimulation(el, value) {
-  console.log(`[Autofill] Using simulation for element`);
-  
   // Focus and click
   el.focus();
   clickElement(el);
@@ -1388,11 +1369,9 @@ function setInputValue(input, value) {
     }
   } catch (e) {
     // If native setter fails, use direct assignment
-    console.log('[Autofill] Native setter failed, using direct assignment');
     try {
       input.value = value;
     } catch (e2) {
-      console.warn('[Autofill] Could not set value on element:', e2);
     }
   }
   
@@ -1439,7 +1418,6 @@ function fillGoogleForm(values, fieldsMeta = []) {
     }
     
     if (!targetContainer) {
-      console.warn(`Google Form: Could not find question for key: ${key}`);
       continue;
     }
     
@@ -1575,7 +1553,6 @@ function fillGoogleForm(values, fieldsMeta = []) {
       'button[aria-label*="Add file" i]'
     );
     if (fileUpload) {
-      console.log(`[Autofill] File upload field "${key}" detected - requires manual upload due to browser security`);
       // We can't programmatically fill file uploads in Google Forms
       // The user must manually click and select the file
       continue;
@@ -1609,7 +1586,6 @@ function fillFileInputs(files) {
     }
     
     if (!el || el.type !== "file") {
-      console.warn(`File input not found for key: ${key}`);
       continue;
     }
     
@@ -1635,10 +1611,7 @@ function fillFileInputs(files) {
       const eventOptions = { bubbles: true, cancelable: true };
       el.dispatchEvent(new Event("input", eventOptions));
       el.dispatchEvent(new Event("change", eventOptions));
-      
-      console.log(`File set for ${key}: ${fileData.name}`);
     } catch (err) {
-      console.error(`Failed to set file for ${key}:`, err);
     }
   }
 }
@@ -1804,7 +1777,6 @@ function setFieldValue(key, value) {
   }
 
   if (!el) {
-    console.warn(`Field not found for key: ${key}`);
     return false;
   }
 
@@ -1842,16 +1814,16 @@ const AUTOFILL_ENHANCE_STYLES = `
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 28px;
-    height: 28px;
+    width: 24px;
+    height: 24px;
     padding: 0;
-    background: white;
-    color: #d4a012;
-    border: 1px solid #e5e5e5;
-    border-radius: 6px;
+    background: none;
+    color: #f59e0b;
+    border: none;
+    outline: none;
+    box-shadow: none;
     cursor: pointer;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-    transition: all 0.15s ease;
+    transition: color 0.15s ease, transform 0.15s ease;
     opacity: 0;
     transform: scale(0.9);
     pointer-events: none;
@@ -1864,10 +1836,8 @@ const AUTOFILL_ENHANCE_STYLES = `
   }
   
   .autofill-enhance-btn:hover {
-    background: #fffbeb;
-    border-color: #d4a012;
-    color: #b8860b;
-    box-shadow: 0 2px 6px rgba(212, 160, 18, 0.25);
+    color: #d97706;
+    transform: scale(1.1);
   }
   
   .autofill-enhance-btn:active {
@@ -1875,13 +1845,13 @@ const AUTOFILL_ENHANCE_STYLES = `
   }
   
   .autofill-enhance-btn:disabled {
-    opacity: 0.5;
+    opacity: 0.4;
     cursor: not-allowed;
   }
   
   .autofill-enhance-btn svg {
-    width: 16px;
-    height: 16px;
+    width: 18px;
+    height: 18px;
   }
   
   .autofill-enhance-wrapper {
@@ -2095,7 +2065,6 @@ function createEnhanceModal() {
   // Backdrop click to close
   modal.addEventListener('click', (e) => {
     if (e.target === modal) {
-      console.log('[Autofill.AI] Modal backdrop clicked');
       hideEnhanceModal(true);
     }
   });
@@ -2105,7 +2074,6 @@ function createEnhanceModal() {
   cancelBtn.addEventListener('click', (e) => {
     e.preventDefault();
     e.stopPropagation();
-    console.log('[Autofill.AI] Cancel clicked');
     hideEnhanceModal(true);
   });
   
@@ -2114,9 +2082,6 @@ function createEnhanceModal() {
   replaceBtn.addEventListener('click', (e) => {
     e.preventDefault();
     e.stopPropagation();
-    console.log('[Autofill.AI] Replace clicked');
-    console.log('[Autofill.AI] pendingEnhanceTarget:', pendingEnhanceTarget);
-    console.log('[Autofill.AI] pendingEnhancedText:', pendingEnhancedText?.substring(0, 50));
     applyEnhancedText();
   });
   
@@ -2165,7 +2130,6 @@ function showEnhanceModal(original, improved) {
   const modal = createEnhanceModal();
   
   // pendingEnhanceTarget should already be set by handleEnhanceClick
-  console.log('[Autofill.AI] showEnhanceModal - pendingEnhanceTarget:', pendingEnhanceTarget?.tagName);
   
   modal.querySelector('#autofill-original-text').textContent = original;
   modal.querySelector('#autofill-improved-text').textContent = improved;
@@ -2270,7 +2234,6 @@ async function handleEnhanceClick(e) {
     showEnhanceModal(text, enhanced);
     
   } catch (err) {
-    console.error('Enhance error:', err);
     alert('Failed to enhance text: ' + (err.message || 'Unknown error'));
   } finally {
     btn.disabled = false;
@@ -2279,17 +2242,14 @@ async function handleEnhanceClick(e) {
 }
 
 function applyEnhancedText() {
-  console.log('[Autofill.AI] applyEnhancedText called');
   
   if (!pendingEnhanceTarget) {
-    console.error('[Autofill.AI] No target element to apply text to');
     alert('Error: Lost reference to text field. Please try again.');
     hideEnhanceModal(true);
     return;
   }
   
   if (!pendingEnhancedText) {
-    console.error('[Autofill.AI] No enhanced text to apply');
     alert('Error: No enhanced text available. Please try again.');
     hideEnhanceModal(true);
     return;
@@ -2298,9 +2258,6 @@ function applyEnhancedText() {
   const el = pendingEnhanceTarget;
   const textToApply = pendingEnhancedText;
   
-  console.log('[Autofill.AI] Applying to element:', el.tagName, el.id || el.name || '(no id)');
-  console.log('[Autofill.AI] Text length:', textToApply.length);
-  
   try {
     if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') {
       // Use native setter for React/Vue compatibility
@@ -2308,14 +2265,11 @@ function applyEnhancedText() {
       const descriptor = Object.getOwnPropertyDescriptor(prototype, 'value');
       if (descriptor && descriptor.set) {
         descriptor.set.call(el, textToApply);
-        console.log('[Autofill.AI] Used native setter');
       } else {
         el.value = textToApply;
-        console.log('[Autofill.AI] Used direct assignment');
       }
     } else if (el.isContentEditable) {
       el.innerText = textToApply;
-      console.log('[Autofill.AI] Set contentEditable innerText');
     }
     
     // Trigger events to notify frameworks
@@ -2325,16 +2279,13 @@ function applyEnhancedText() {
     el.dispatchEvent(new FocusEvent('focus', eventOptions));
     el.dispatchEvent(new FocusEvent('blur', eventOptions));
     
-    console.log('[Autofill.AI] Events dispatched, new value:', el.value?.substring(0, 50) || el.innerText?.substring(0, 50));
     
     // Hide modal and clear state
     hideEnhanceModal(false);
     pendingEnhancedText = '';
     pendingEnhanceTarget = null;
     
-    console.log('[Autofill.AI] Text applied successfully');
   } catch (err) {
-    console.error('[Autofill.AI] Error applying text:', err);
     alert('Error applying text: ' + err.message);
   }
 }
@@ -2414,11 +2365,9 @@ function initEnhanceListeners() {
 // Initialize enhance listeners when DOM is ready
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', () => {
-    console.log('[Autofill.AI] Content script loaded, initializing enhance listeners');
     initEnhanceListeners();
   });
 } else {
-  console.log('[Autofill.AI] Content script loaded (DOM ready), initializing enhance listeners');
   initEnhanceListeners();
 }
 

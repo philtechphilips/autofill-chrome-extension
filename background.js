@@ -3,8 +3,6 @@ const AUTH_STORAGE_KEY = "autofill_auth";
 const STORAGE_KEY = "autofill_profiles";
 const FILL_HISTORY_KEY = "autofill_fill_history";
 
-console.log("[Autofill.AI] Background service worker started");
-
 // Track analytics events (non-blocking)
 async function trackEvent(eventData) {
   try {
@@ -21,14 +19,12 @@ async function trackEvent(eventData) {
       body: JSON.stringify(eventData)
     });
   } catch (err) {
-    console.log("[Autofill.AI] Analytics tracking failed (non-critical):", err.message);
   }
 }
 
 // ==================== KEYBOARD SHORTCUTS ====================
 
 chrome.commands.onCommand.addListener(async (command) => {
-  console.log("[Autofill.AI] Command received:", command);
   
   if (command === "execute-autofill") {
     await executeAutofillFromShortcut();
@@ -41,7 +37,6 @@ async function executeAutofillFromShortcut() {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab) {
-      console.log("[Autofill.AI] No active tab found");
       return;
     }
 
@@ -125,7 +120,6 @@ async function executeAutofillFromShortcut() {
     await fillFormDirectly(tab.id, values, fields);
 
   } catch (err) {
-    console.error("[Autofill.AI] Shortcut autofill error:", err);
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (tab) {
       await showNotification(tab.id, "Error: " + (err.message || "Autofill failed"), "error");
@@ -189,7 +183,6 @@ async function fillFormDirectly(tabId, values, fields) {
     });
 
   } catch (err) {
-    console.error("[Autofill.AI] Fill error:", err);
     await showNotification(tabId, "Fill failed: " + err.message, "error");
   }
 }
@@ -231,7 +224,6 @@ async function undoFillFromShortcut() {
     await showNotification(tab.id, "Restored previous values!", "success");
 
   } catch (err) {
-    console.error("[Autofill.AI] Undo error:", err);
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (tab) {
       await showNotification(tab.id, "Undo failed: " + err.message, "error");
@@ -309,7 +301,6 @@ async function showNotification(tabId, message, type = "info") {
       args: [message, type]
     });
   } catch (err) {
-    console.log("[Autofill.AI] Could not show notification:", err.message);
   }
 }
 
@@ -349,16 +340,12 @@ function mergeProfileWithAiValues(fields, aiValues, profile) {
 // ==================== MESSAGE HANDLERS ====================
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  console.log("[Autofill.AI] Received message:", request.type);
-  
   if (request.type === "ENHANCE_TEXT") {
     handleEnhanceText(request.data, sender.tab)
       .then(result => {
-        console.log("[Autofill.AI] Enhancement successful");
         sendResponse(result);
       })
       .catch(err => {
-        console.error("[Autofill.AI] Enhancement error:", err);
         sendResponse({ error: err.message || "Enhancement failed" });
       });
     return true; // Keep channel open for async response
@@ -372,7 +359,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 });
 
 async function handleEnhanceText({ text, fieldLabel, context, enhanceType }, tab) {
-  console.log("[Autofill.AI] Calling enhance API...");
   
   try {
     const response = await fetch(`${BACKEND_URL}/api/v1/form/enhance`, {
@@ -386,7 +372,6 @@ async function handleEnhanceText({ text, fieldLabel, context, enhanceType }, tab
       })
     });
 
-    console.log("[Autofill.AI] API response status:", response.status);
 
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
@@ -414,7 +399,6 @@ async function handleEnhanceText({ text, fieldLabel, context, enhanceType }, tab
       enhanced: data.data?.enhanced || data.enhanced
     };
   } catch (err) {
-    console.error("[Autofill.AI] Enhance API error:", err);
     
     // Track failed enhance
     trackEvent({

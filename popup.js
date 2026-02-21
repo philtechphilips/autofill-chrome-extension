@@ -3,7 +3,7 @@ const STORAGE_KEY = "autofill_profiles";
 const PRIVACY_NOTICE_KEY = "autofill_privacy_notice_dismissed";
 const AUTH_STORAGE_KEY = "autofill_auth";
 const FILL_HISTORY_KEY = "autofill_fill_history";
-const PRIVACY_POLICY_URL = ""; // e.g. BACKEND_URL + "/privacy" or your policy URL
+const PRIVACY_POLICY_URL = "https://autofill.live/privacy";
 
 // File inputs selected by user in preview (not saved to profile, just for current fill)
 let pendingFiles = {};
@@ -22,7 +22,6 @@ async function trackEvent(eventData) {
       body: JSON.stringify(eventData)
     });
   } catch (err) {
-    console.log("[Autofill.AI] Analytics tracking failed (non-critical):", err.message);
   }
 }
 
@@ -784,7 +783,6 @@ fillBtn.onclick = async () => {
     }
     showPreview(fields, values, tab.id);
   } catch (error) {
-    console.error("Autofill error:", error);
     status.innerText = "Error: " + error.message;
     fillBtn.disabled = false;
     fillBtn.innerText = "Execute Autofill";
@@ -872,7 +870,6 @@ async function refreshToken() {
       return true;
     }
   } catch (err) {
-    console.error("Token refresh failed:", err);
   }
 
   authState = { accessToken: null, user: null };
@@ -948,7 +945,6 @@ async function logout() {
   try {
     await apiRequest("/auth/logout", { method: "POST" });
   } catch (err) {
-    console.error("Logout error:", err);
   }
 
   // Clear encryption state
@@ -1045,7 +1041,6 @@ async function pullProfilesFromCloud() {
           ...profileData
         });
       } catch (err) {
-        console.error("Failed to decrypt profile:", cp.name, err);
       }
     }
 
@@ -1059,7 +1054,6 @@ async function pullProfilesFromCloud() {
     syncStatusEl.textContent = `Loaded ${decryptedProfiles.length} profile(s)`;
     setTimeout(() => { syncStatusEl.textContent = ""; }, 2000);
   } catch (err) {
-    console.error("Pull profiles error:", err);
     syncStatusEl.textContent = "";
   }
 }
@@ -1136,7 +1130,6 @@ syncProfilesBtn.addEventListener("click", async () => {
   try {
     await syncProfilesToCloud();
   } catch (err) {
-    console.error("Sync error:", err);
   }
 });
 
@@ -1544,48 +1537,17 @@ async function readFileAsText(file) {
     const reader = new FileReader();
     reader.onload = () => resolve(reader.result);
     reader.onerror = reject;
-
-    if (file.type === "application/pdf") {
-      // For PDF, we'll send to backend which can handle it
-      // For now, read as array buffer and convert
-      reader.readAsArrayBuffer(file);
-    } else {
-      reader.readAsText(file);
-    }
+    reader.readAsText(file);
   });
 }
 
-async function extractTextFromPDF(arrayBuffer) {
-  // Simple PDF text extraction - for complex PDFs, backend should handle
-  const uint8Array = new Uint8Array(arrayBuffer);
-  let text = "";
-
-  // Try to extract text between stream markers (basic approach)
-  const decoder = new TextDecoder("utf-8", { fatal: false });
-  const content = decoder.decode(uint8Array);
-
-  // Extract text from PDF streams (simplified)
-  const textMatches = content.match(/\(([^)]+)\)/g);
-  if (textMatches) {
-    text = textMatches
-      .map(m => m.slice(1, -1))
-      .filter(t => t.length > 1 && !/^[\\\/\d\s]+$/.test(t))
-      .join(" ");
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
   }
-
-  // If that didn't work well, try another approach
-  if (text.length < 100) {
-    // Look for text between BT and ET markers
-    const btEtMatches = content.match(/BT[\s\S]*?ET/g);
-    if (btEtMatches) {
-      text = btEtMatches
-        .join(" ")
-        .replace(/[\x00-\x1F]/g, " ")
-        .replace(/\s+/g, " ");
-    }
-  }
-
-  return text || "Could not extract text from PDF. Please try a .txt or .docx file.";
+  return btoa(binary);
 }
 
 async function handleCVUpload(file) {
@@ -1596,41 +1558,42 @@ async function handleCVUpload(file) {
   cvUploadArea.style.pointerEvents = "none";
 
   try {
-    let cvText = "";
+    let requestBody = {};
 
     if (file.type === "application/pdf") {
-      const arrayBuffer = await readFileAsText(file);
-      cvText = await extractTextFromPDF(arrayBuffer);
-    } else if (file.name.endsWith(".docx")) {
-      // For DOCX, extract text (simplified - real implementation would use a library)
+      // Send PDF as base64 to backend for proper parsing
       const arrayBuffer = await file.arrayBuffer();
-      const decoder = new TextDecoder("utf-8", { fatal: false });
-      const content = decoder.decode(new Uint8Array(arrayBuffer));
-      // Extract text from DOCX XML
-      const textMatches = content.match(/<w:t[^>]*>([^<]+)<\/w:t>/g);
-      if (textMatches) {
-        cvText = textMatches.map(m => m.replace(/<[^>]+>/g, "")).join(" ");
-      }
+      const base64 = arrayBufferToBase64(arrayBuffer);
+      requestBody = { 
+        pdfBase64: base64,
+        fileName: file.name
+      };
+    } else if (file.name.endsWith(".docx")) {
+      // Send DOCX as base64 to backend for proper parsing
+      const arrayBuffer = await file.arrayBuffer();
+      const base64 = arrayBufferToBase64(arrayBuffer);
+      requestBody = { 
+        docxBase64: base64,
+        fileName: file.name
+      };
     } else {
-      cvText = await file.text();
-    }
-
-    if (!cvText || cvText.length < 50) {
-      throw new Error("Could not extract enough text from file. Please try a different format.");
-    }
-
-    // Limit CV text size to avoid API limits (max ~30KB of text)
-    const MAX_CV_LENGTH = 30000;
-    if (cvText.length > MAX_CV_LENGTH) {
-      console.log(`CV text truncated from ${cvText.length} to ${MAX_CV_LENGTH} chars`);
-      cvText = cvText.substring(0, MAX_CV_LENGTH);
+      // Plain text files
+      const cvText = await file.text();
+      if (!cvText || cvText.length < 50) {
+        throw new Error("Could not extract enough text from file. Please try a different format.");
+      }
+      // Limit CV text size to avoid API limits (max ~30KB of text)
+      const MAX_CV_LENGTH = 30000;
+      requestBody = { 
+        cvText: cvText.length > MAX_CV_LENGTH ? cvText.substring(0, MAX_CV_LENGTH) : cvText 
+      };
     }
 
     // Send to backend for AI parsing
     const response = await fetch(`${BACKEND_URL}/api/v1/form/parse-cv`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ cvText })
+      body: JSON.stringify(requestBody)
     });
 
     if (!response.ok) {
@@ -1687,7 +1650,6 @@ async function handleCVUpload(file) {
     setTimeout(() => { cvStatus.textContent = ""; }, 2000);
 
   } catch (err) {
-    console.error("CV parse error:", err);
     cvStatus.textContent = "Error: " + err.message;
 
     // Track failed CV parse
