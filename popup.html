@@ -15,6 +15,25 @@
       --radius: 6px;
     }
 
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
+    #cv-upload-area:hover {
+      border-color: var(--fg);
+      background: var(--accents-1);
+    }
+
+    #cv-parsed-info {
+      animation: fadeIn 0.2s ease;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(-4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
     * {
       box-sizing: border-box;
       -webkit-font-smoothing: antialiased;
@@ -575,7 +594,48 @@
         </svg>
         Undo Last Fill
       </button>
+      
       <div id="status"></div>
+      
+      <!-- CV Upload Toggle -->
+      <div id="cv-toggle-section" style="margin-top: 12px;">
+        <button type="button" id="cv-toggle-btn" style="background: none; border: none; padding: 0; font-size: 11px; color: var(--accents-4); cursor: pointer; display: flex; align-items: center; gap: 4px;">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+          </svg>
+          <span id="cv-toggle-text">Upload CV / Resume</span>
+          <svg id="cv-toggle-arrow" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="transition: transform 0.2s;">
+            <polyline points="6 9 12 15 18 9"/>
+          </svg>
+        </button>
+        <span id="cv-status" style="font-size: 10px; color: var(--accents-3); margin-left: 8px;"></span>
+      </div>
+      
+      <!-- CV Upload Section (hidden by default) -->
+      <div id="cv-section" style="display: none; margin-top: 8px; padding: 10px; background: var(--accents-1); border-radius: var(--radius);">
+        <div id="cv-upload-area" style="border: 1px dashed var(--accents-2); border-radius: var(--radius); padding: 12px; text-align: center; cursor: pointer; transition: all 0.15s; background: var(--bg);">
+          <input type="file" id="cv-file-input" accept=".pdf,.doc,.docx,.txt" style="display: none;">
+          <div style="font-size: 11px; color: var(--accents-4);">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-bottom: 4px;">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="17 8 12 3 7 8"/>
+              <line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+            <div>Drop your CV here or click to upload</div>
+            <div style="font-size: 9px; color: var(--accents-3); margin-top: 2px;">PDF, DOC, DOCX, or TXT</div>
+          </div>
+        </div>
+        <div id="cv-parsed-info" style="display: none; margin-top: 8px; padding: 8px; background: var(--bg); border-radius: var(--radius); font-size: 10px;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span id="cv-parsed-name" style="font-weight: 500;"></span>
+            <button type="button" id="cv-clear-btn" class="secondary" style="width: auto; height: 20px; padding: 0 6px; font-size: 9px;">Clear All</button>
+          </div>
+          <div id="cv-parsed-details" style="color: var(--accents-3); margin-top: 4px;"></div>
+          <div style="font-size: 9px; color: var(--accents-3); margin-top: 6px;">Tip: Select a CV from the profiles dropdown above to use it</div>
+        </div>
+      </div>
+      
     </div>
     <div id="preview-section" class="preview-section">
       <div class="preview-title">Preview before filling</div>
@@ -647,6 +707,84 @@
   <div class="meta">
     <span>v0.1.0</span>
   </div>
+
+  <!-- CV Parsed Results Modal -->
+  <div id="cv-results-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 100; overflow-y: auto;">
+    <div style="background: var(--bg); margin: 20px auto; padding: 16px; border-radius: var(--radius); width: 280px; max-height: calc(100vh - 40px); overflow-y: auto;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <h3 style="margin: 0; font-size: 14px;">CV Parsed Successfully</h3>
+        <button type="button" id="cv-results-close" style="background: none; border: none; cursor: pointer; padding: 4px; color: var(--accents-4);">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+      <div id="cv-results-content" style="font-size: 11px;"></div>
+      <button type="button" id="cv-results-done" style="width: 100%; margin-top: 12px;">Done</button>
+    </div>
+  </div>
+
+  <style>
+    #cv-results-content .cv-section {
+      margin-bottom: 12px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--accents-2);
+    }
+    #cv-results-content .cv-section:last-child {
+      border-bottom: none;
+      margin-bottom: 0;
+      padding-bottom: 0;
+    }
+    #cv-results-content .cv-section-title {
+      font-weight: 600;
+      color: var(--fg);
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    #cv-results-content .cv-section-title svg {
+      color: var(--accents-3);
+    }
+    #cv-results-content .cv-item {
+      color: var(--accents-4);
+      margin-bottom: 4px;
+      padding-left: 4px;
+    }
+    #cv-results-content .cv-item strong {
+      color: var(--fg);
+      font-weight: 500;
+    }
+    #cv-results-content .cv-job, #cv-results-content .cv-edu {
+      background: var(--accents-1);
+      padding: 8px;
+      border-radius: 4px;
+      margin-bottom: 6px;
+    }
+    #cv-results-content .cv-job-title, #cv-results-content .cv-edu-degree {
+      font-weight: 500;
+      color: var(--fg);
+    }
+    #cv-results-content .cv-job-company, #cv-results-content .cv-edu-school {
+      color: var(--accents-4);
+    }
+    #cv-results-content .cv-job-dates, #cv-results-content .cv-edu-dates {
+      font-size: 10px;
+      color: var(--accents-3);
+    }
+    #cv-results-content .cv-skills-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+    #cv-results-content .cv-skill-tag {
+      background: var(--accents-1);
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-size: 10px;
+      color: var(--accents-4);
+    }
+  </style>
 
   <script src="crypto.js"></script>
   <script src="popup.js"></script>

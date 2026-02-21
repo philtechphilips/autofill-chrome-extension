@@ -480,13 +480,13 @@ async function confirmFill() {
     if (pendingValues && Object.keys(pendingValues).length > 0) {
       await chrome.scripting.executeScript({
         target: { tabId: currentTabId },
-        func: (formValues) => {
+        func: (formValues, fieldsMeta) => {
           if (typeof window.fillForm !== "function") {
             throw new Error("Content script not loaded. Please refresh the page.");
           }
-          window.fillForm(formValues);
+          window.fillForm(formValues, fieldsMeta);
         },
-        args: [pendingValues]
+        args: [pendingValues, pendingFields || []]
       });
     }
     
@@ -681,16 +681,28 @@ fillBtn.onclick = async () => {
 
     if (profile && profileModeVal === "plus_ai") {
       status.innerText = "Generating AI (profile will fill matching fields)...";
+    } else if (profile) {
+      status.innerText = profile.isCV ? "Generating AI with your CV data..." : "Generating AI responses...";
     } else {
       status.innerText = "Generating AI responses...";
     }
+
+    // Only send profile data if user explicitly selected one
+    const profileDataForAI = profile || null;
 
     let response;
     try {
       response = await fetch(`${BACKEND_URL}/api/v1/form/analyze`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fields, context, pageUrl, pageTitle, fillOnlyEmpty })
+        body: JSON.stringify({ 
+          fields, 
+          context, 
+          pageUrl, 
+          pageTitle, 
+          fillOnlyEmpty,
+          profileData: profileDataForAI
+        })
       });
     } catch (err) {
       throw new Error("Cannot reach server");
@@ -1065,6 +1077,925 @@ loginModal.addEventListener("click", (e) => {
   }
 });
 
+// ==================== CV Upload & Parsing ====================
+
+const cvUploadArea = document.getElementById("cv-upload-area");
+const cvFileInput = document.getElementById("cv-file-input");
+const cvStatus = document.getElementById("cv-status");
+const cvSection = document.getElementById("cv-section");
+const cvToggleBtn = document.getElementById("cv-toggle-btn");
+const cvToggleText = document.getElementById("cv-toggle-text");
+const cvToggleArrow = document.getElementById("cv-toggle-arrow");
+
+let cvSectionVisible = false;
+
+function getCVProfiles() {
+  return profiles.filter(p => p.isCV);
+}
+
+function getCVProfile() {
+  return profiles.find(p => p.isCV);
+}
+
+function toggleCVSection() {
+  cvSectionVisible = !cvSectionVisible;
+  cvSection.style.display = cvSectionVisible ? "block" : "none";
+  cvToggleArrow.style.transform = cvSectionVisible ? "rotate(180deg)" : "";
+}
+
+function updateCVUI() {
+  const cvProfiles = getCVProfiles();
+  const cvParsedInfo = document.getElementById("cv-parsed-info");
+  const cvParsedName = document.getElementById("cv-parsed-name");
+  const cvParsedDetails = document.getElementById("cv-parsed-details");
+  
+  if (cvProfiles.length > 0) {
+    // Update toggle button text to show CV count
+    if (cvProfiles.length === 1) {
+      cvToggleText.textContent = `CV: ${cvProfiles[0].name.replace("CV - ", "")}`;
+    } else {
+      cvToggleText.textContent = `${cvProfiles.length} CVs uploaded`;
+    }
+    cvToggleText.style.color = "var(--fg)";
+    cvToggleText.style.fontWeight = "500";
+    
+    // Always show upload area so user can add more
+    cvUploadArea.style.display = "block";
+    cvParsedInfo.style.display = "block";
+    
+    // Show list of CV profiles
+    const cvNames = cvProfiles.map(p => p.name.replace("CV - ", "")).join(", ");
+    cvParsedName.textContent = cvProfiles.length === 1 ? cvProfiles[0].name.replace("CV - ", "") : `${cvProfiles.length} CVs`;
+    
+    const latestCV = cvProfiles[0];
+    const details = [];
+    if (latestCV.email) details.push(latestCV.email);
+    if (latestCV.job_title) details.push(latestCV.job_title);
+    details.push("Select from profiles dropdown");
+    cvParsedDetails.textContent = details.join(" • ");
+  } else {
+    // Reset toggle button text
+    cvToggleText.textContent = "Upload CV / Resume";
+    cvToggleText.style.color = "";
+    cvToggleText.style.fontWeight = "";
+    
+    cvUploadArea.style.display = "block";
+    cvParsedInfo.style.display = "none";
+  }
+}
+
+// CV Results Modal
+const cvResultsModal = document.getElementById("cv-results-modal");
+const cvResultsContent = document.getElementById("cv-results-content");
+
+function showCVResultsModal(parsed, profileName) {
+  let html = '';
+  
+  // Personal Info
+  if (parsed.personal) {
+    const p = parsed.personal;
+    html += `<div class="cv-section">
+      <div class="cv-section-title">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+          <circle cx="12" cy="7" r="4"/>
+        </svg>
+        Personal Info
+      </div>`;
+    if (p.first_name || p.last_name || p.full_name) html += `<div class="cv-item"><strong>Name:</strong> ${p.full_name || ((p.first_name || '') + ' ' + (p.last_name || '')).trim()}</div>`;
+    if (p.email) html += `<div class="cv-item"><strong>Email:</strong> ${p.email}</div>`;
+    if (p.phone) html += `<div class="cv-item"><strong>Phone:</strong> ${p.phone}</div>`;
+    if (p.address || p.city || p.country) html += `<div class="cv-item"><strong>Location:</strong> ${p.address || [p.city, p.state, p.country].filter(Boolean).join(', ')}</div>`;
+    if (p.nationality) html += `<div class="cv-item"><strong>Nationality:</strong> ${p.nationality}</div>`;
+    if (p.date_of_birth) html += `<div class="cv-item"><strong>DOB:</strong> ${p.date_of_birth}</div>`;
+    if (p.linkedin) html += `<div class="cv-item"><strong>LinkedIn:</strong> ${p.linkedin}</div>`;
+    if (p.github) html += `<div class="cv-item"><strong>GitHub:</strong> ${p.github}</div>`;
+    if (p.portfolio || p.website) html += `<div class="cv-item"><strong>Website:</strong> ${p.portfolio || p.website}</div>`;
+    if (p.headline) html += `<div class="cv-item"><strong>Headline:</strong> ${p.headline}</div>`;
+    if (p.summary) html += `<div class="cv-item"><strong>Summary:</strong> ${p.summary.substring(0, 200)}${p.summary.length > 200 ? '...' : ''}</div>`;
+    if (p.availability) html += `<div class="cv-item"><strong>Availability:</strong> ${p.availability}</div>`;
+    if (p.desired_salary) html += `<div class="cv-item"><strong>Desired Salary:</strong> ${p.desired_salary}</div>`;
+    html += `</div>`;
+  }
+  
+  // Work Experience
+  if (parsed.work_experience?.length > 0) {
+    html += `<div class="cv-section">
+      <div class="cv-section-title">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="2" y="7" width="20" height="14" rx="2" ry="2"/>
+          <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>
+        </svg>
+        Work Experience (${parsed.work_experience.length})
+      </div>`;
+    parsed.work_experience.forEach(job => {
+      html += `<div class="cv-job">
+        <div class="cv-job-title">${job.title || 'Unknown Title'}${job.employment_type ? ` (${job.employment_type})` : ''}</div>
+        <div class="cv-job-company">${job.company || 'Unknown Company'}${job.department ? ` - ${job.department}` : ''}</div>
+        <div class="cv-job-dates">${job.start_date || ''} - ${job.end_date || 'Present'}${job.location ? ` | ${job.location}` : ''}</div>
+      </div>`;
+    });
+    html += `</div>`;
+  }
+  
+  // Education
+  if (parsed.education?.length > 0) {
+    html += `<div class="cv-section">
+      <div class="cv-section-title">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M22 10v6M2 10l10-5 10 5-10 5z"/>
+          <path d="M6 12v5c3 3 9 3 12 0v-5"/>
+        </svg>
+        Education (${parsed.education.length})
+      </div>`;
+    parsed.education.forEach(edu => {
+      html += `<div class="cv-edu">
+        <div class="cv-edu-degree">${edu.degree || ''} ${edu.field ? 'in ' + edu.field : ''}${edu.honors ? ` - ${edu.honors}` : ''}</div>
+        <div class="cv-edu-school">${edu.institution || 'Unknown Institution'}</div>
+        <div class="cv-edu-dates">${edu.start_date || ''} - ${edu.end_date || ''}${edu.gpa ? ` | GPA: ${edu.gpa}` : ''}</div>
+      </div>`;
+    });
+    html += `</div>`;
+  }
+  
+  // Skills
+  if (parsed.skills) {
+    const allSkills = [
+      ...(parsed.skills.technical || []),
+      ...(parsed.skills.programming_languages || parsed.skills.programming || []),
+      ...(parsed.skills.frameworks || []),
+      ...(parsed.skills.tools || []),
+      ...(parsed.skills.databases || []),
+      ...(parsed.skills.cloud || []),
+      ...(parsed.skills.other || [])
+    ];
+    if (allSkills.length > 0) {
+      html += `<div class="cv-section">
+        <div class="cv-section-title">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+          </svg>
+          Technical Skills (${allSkills.length})
+        </div>
+        <div class="cv-skills-list">
+          ${allSkills.slice(0, 20).map(s => `<span class="cv-skill-tag">${s}</span>`).join('')}
+          ${allSkills.length > 20 ? `<span class="cv-skill-tag">+${allSkills.length - 20} more</span>` : ''}
+        </div>
+      </div>`;
+    }
+    if (parsed.skills.soft_skills?.length > 0) {
+      html += `<div class="cv-section">
+        <div class="cv-section-title">Soft Skills (${parsed.skills.soft_skills.length})</div>
+        <div class="cv-skills-list">
+          ${parsed.skills.soft_skills.map(s => `<span class="cv-skill-tag">${s}</span>`).join('')}
+        </div>
+      </div>`;
+    }
+  }
+  
+  // Languages
+  if (parsed.languages?.length > 0) {
+    html += `<div class="cv-section">
+      <div class="cv-section-title">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"/>
+          <line x1="2" y1="12" x2="22" y2="12"/>
+          <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+        </svg>
+        Languages (${parsed.languages.length})
+      </div>
+      <div class="cv-skills-list">
+        ${parsed.languages.map(l => `<span class="cv-skill-tag">${l.language} (${l.proficiency || 'N/A'})</span>`).join('')}
+      </div>
+    </div>`;
+  }
+  
+  // Certifications
+  if (parsed.certifications?.length > 0) {
+    html += `<div class="cv-section">
+      <div class="cv-section-title">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="8" r="7"/>
+          <polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/>
+        </svg>
+        Certifications (${parsed.certifications.length})
+      </div>`;
+    parsed.certifications.forEach(cert => {
+      html += `<div class="cv-item"><strong>${cert.name}</strong>${cert.issuer ? ' - ' + cert.issuer : ''}${cert.date ? ' (' + cert.date + ')' : ''}</div>`;
+    });
+    html += `</div>`;
+  }
+  
+  // Projects
+  if (parsed.projects?.length > 0) {
+    html += `<div class="cv-section">
+      <div class="cv-section-title">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+        </svg>
+        Projects (${parsed.projects.length})
+      </div>`;
+    parsed.projects.forEach(proj => {
+      html += `<div class="cv-item"><strong>${proj.name}</strong>${proj.role ? ` (${proj.role})` : ''}${proj.description ? ': ' + proj.description.substring(0, 80) + (proj.description.length > 80 ? '...' : '') : ''}</div>`;
+    });
+    html += `</div>`;
+  }
+  
+  // References
+  if (parsed.references?.length > 0) {
+    html += `<div class="cv-section">
+      <div class="cv-section-title">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+          <circle cx="9" cy="7" r="4"/>
+          <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+          <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+        </svg>
+        References (${parsed.references.length})
+      </div>`;
+    parsed.references.forEach(ref => {
+      if (ref.available_on_request) {
+        html += `<div class="cv-item">Available on request</div>`;
+      } else {
+        html += `<div class="cv-item"><strong>${ref.name || 'N/A'}</strong>${ref.title ? ` - ${ref.title}` : ''}${ref.company ? ` at ${ref.company}` : ''}${ref.relationship ? ` (${ref.relationship})` : ''}</div>`;
+        if (ref.email || ref.phone) html += `<div class="cv-item" style="padding-left: 12px; font-size: 9px;">${ref.email || ''}${ref.email && ref.phone ? ' | ' : ''}${ref.phone || ''}</div>`;
+      }
+    });
+    html += `</div>`;
+  }
+  
+  // Awards
+  if (parsed.awards?.length > 0) {
+    html += `<div class="cv-section">
+      <div class="cv-section-title">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="8" r="7"/>
+          <polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/>
+        </svg>
+        Awards (${parsed.awards.length})
+      </div>`;
+    parsed.awards.forEach(award => {
+      html += `<div class="cv-item"><strong>${award.name}</strong>${award.issuer ? ' from ' + award.issuer : ''}${award.date ? ' (' + award.date + ')' : ''}</div>`;
+    });
+    html += `</div>`;
+  }
+  
+  // Publications
+  if (parsed.publications?.length > 0) {
+    html += `<div class="cv-section">
+      <div class="cv-section-title">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+          <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+        </svg>
+        Publications (${parsed.publications.length})
+      </div>`;
+    parsed.publications.forEach(pub => {
+      html += `<div class="cv-item"><strong>${pub.title}</strong>${pub.publisher ? ' in ' + pub.publisher : ''}${pub.date ? ' (' + pub.date + ')' : ''}</div>`;
+    });
+    html += `</div>`;
+  }
+  
+  // Volunteer Experience (handle both old and new field names)
+  const volunteerData = parsed.volunteer_experience || parsed.volunteer;
+  if (volunteerData?.length > 0) {
+    html += `<div class="cv-section">
+      <div class="cv-section-title">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+        </svg>
+        Volunteer Experience (${volunteerData.length})
+      </div>`;
+    volunteerData.forEach(vol => {
+      html += `<div class="cv-item"><strong>${vol.role || 'Volunteer'}</strong>${vol.organization ? ' at ' + vol.organization : ''}${vol.cause ? ` (${vol.cause})` : ''}</div>`;
+    });
+    html += `</div>`;
+  }
+  
+  // Professional Memberships (handle both old and new field names)
+  const membershipsData = parsed.professional_memberships || parsed.memberships;
+  if (membershipsData?.length > 0) {
+    html += `<div class="cv-section">
+      <div class="cv-section-title">Professional Memberships (${membershipsData.length})</div>`;
+    membershipsData.forEach(mem => {
+      html += `<div class="cv-item"><strong>${mem.organization}</strong>${mem.role ? ' - ' + mem.role : ''}</div>`;
+    });
+    html += `</div>`;
+  }
+  
+  // Courses
+  if (parsed.courses?.length > 0) {
+    html += `<div class="cv-section">
+      <div class="cv-section-title">Courses (${parsed.courses.length})</div>`;
+    parsed.courses.forEach(course => {
+      html += `<div class="cv-item"><strong>${course.name}</strong>${course.provider ? ' by ' + course.provider : ''}${course.date ? ' (' + course.date + ')' : ''}</div>`;
+    });
+    html += `</div>`;
+  }
+  
+  // Interests
+  if (parsed.interests?.length > 0) {
+    html += `<div class="cv-section">
+      <div class="cv-section-title">Interests & Hobbies</div>
+      <div class="cv-skills-list">
+        ${parsed.interests.map(i => `<span class="cv-skill-tag">${i}</span>`).join('')}
+      </div>
+    </div>`;
+  }
+  
+  // Additional Info
+  if (parsed.additional_info) {
+    const ai = parsed.additional_info;
+    const hasInfo = ai.driving_license || ai.visa_status || ai.security_clearance || ai.military_service || ai.military || ai.other;
+    if (hasInfo) {
+      html += `<div class="cv-section">
+        <div class="cv-section-title">Additional Information</div>`;
+      if (ai.driving_license) html += `<div class="cv-item"><strong>Driving License:</strong> ${ai.driving_license}</div>`;
+      if (ai.visa_status) html += `<div class="cv-item"><strong>Visa Status:</strong> ${ai.visa_status}</div>`;
+      if (ai.security_clearance) html += `<div class="cv-item"><strong>Security Clearance:</strong> ${ai.security_clearance}</div>`;
+      if (ai.military_service || ai.military) html += `<div class="cv-item"><strong>Military Service:</strong> ${ai.military_service || ai.military}</div>`;
+      if (ai.other) html += `<div class="cv-item">${ai.other}</div>`;
+      html += `</div>`;
+    }
+  }
+  
+  // Additional Sections (AI-detected non-standard sections)
+  if (parsed.additional_sections?.length > 0) {
+    parsed.additional_sections.forEach(section => {
+      html += `<div class="cv-section">
+        <div class="cv-section-title">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <line x1="16" y1="13" x2="8" y2="13"/>
+            <line x1="16" y1="17" x2="8" y2="17"/>
+          </svg>
+          ${section.section_title || 'Other'}
+        </div>`;
+      if (Array.isArray(section.content)) {
+        section.content.forEach(item => {
+          if (typeof item === 'string') {
+            html += `<div class="cv-item">${item}</div>`;
+          } else if (typeof item === 'object') {
+            html += `<div class="cv-item">${JSON.stringify(item)}</div>`;
+          }
+        });
+      } else if (typeof section.content === 'string') {
+        html += `<div class="cv-item">${section.content}</div>`;
+      } else if (section.content) {
+        html += `<div class="cv-item">${JSON.stringify(section.content)}</div>`;
+      }
+      html += `</div>`;
+    });
+  }
+  
+  // Show success message
+  html = `<div style="background: #d1fae5; color: #065f46; padding: 8px; border-radius: 4px; margin-bottom: 12px; font-size: 10px;">
+    Saved as profile: <strong>${profileName}</strong>
+  </div>` + html;
+  
+  cvResultsContent.innerHTML = html;
+  cvResultsModal.style.display = "block";
+}
+
+function hideCVResultsModal() {
+  cvResultsModal.style.display = "none";
+}
+
+document.getElementById("cv-results-close").addEventListener("click", hideCVResultsModal);
+document.getElementById("cv-results-done").addEventListener("click", hideCVResultsModal);
+cvResultsModal.addEventListener("click", (e) => {
+  if (e.target === cvResultsModal) hideCVResultsModal();
+});
+
+cvToggleBtn.addEventListener("click", toggleCVSection);
+
+async function readFileAsText(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    
+    if (file.type === "application/pdf") {
+      // For PDF, we'll send to backend which can handle it
+      // For now, read as array buffer and convert
+      reader.readAsArrayBuffer(file);
+    } else {
+      reader.readAsText(file);
+    }
+  });
+}
+
+async function extractTextFromPDF(arrayBuffer) {
+  // Simple PDF text extraction - for complex PDFs, backend should handle
+  const uint8Array = new Uint8Array(arrayBuffer);
+  let text = "";
+  
+  // Try to extract text between stream markers (basic approach)
+  const decoder = new TextDecoder("utf-8", { fatal: false });
+  const content = decoder.decode(uint8Array);
+  
+  // Extract text from PDF streams (simplified)
+  const textMatches = content.match(/\(([^)]+)\)/g);
+  if (textMatches) {
+    text = textMatches
+      .map(m => m.slice(1, -1))
+      .filter(t => t.length > 1 && !/^[\\\/\d\s]+$/.test(t))
+      .join(" ");
+  }
+  
+  // If that didn't work well, try another approach
+  if (text.length < 100) {
+    // Look for text between BT and ET markers
+    const btEtMatches = content.match(/BT[\s\S]*?ET/g);
+    if (btEtMatches) {
+      text = btEtMatches
+        .join(" ")
+        .replace(/[\x00-\x1F]/g, " ")
+        .replace(/\s+/g, " ");
+    }
+  }
+  
+  return text || "Could not extract text from PDF. Please try a .txt or .docx file.";
+}
+
+async function handleCVUpload(file) {
+  if (!file) return;
+  
+  cvStatus.textContent = "Parsing...";
+  cvUploadArea.style.opacity = "0.5";
+  cvUploadArea.style.pointerEvents = "none";
+  
+  try {
+    let cvText = "";
+    
+    if (file.type === "application/pdf") {
+      const arrayBuffer = await readFileAsText(file);
+      cvText = await extractTextFromPDF(arrayBuffer);
+    } else if (file.name.endsWith(".docx")) {
+      // For DOCX, extract text (simplified - real implementation would use a library)
+      const arrayBuffer = await file.arrayBuffer();
+      const decoder = new TextDecoder("utf-8", { fatal: false });
+      const content = decoder.decode(new Uint8Array(arrayBuffer));
+      // Extract text from DOCX XML
+      const textMatches = content.match(/<w:t[^>]*>([^<]+)<\/w:t>/g);
+      if (textMatches) {
+        cvText = textMatches.map(m => m.replace(/<[^>]+>/g, "")).join(" ");
+      }
+    } else {
+      cvText = await file.text();
+    }
+    
+    if (!cvText || cvText.length < 50) {
+      throw new Error("Could not extract enough text from file. Please try a different format.");
+    }
+    
+    // Limit CV text size to avoid API limits (max ~30KB of text)
+    const MAX_CV_LENGTH = 30000;
+    if (cvText.length > MAX_CV_LENGTH) {
+      console.log(`CV text truncated from ${cvText.length} to ${MAX_CV_LENGTH} chars`);
+      cvText = cvText.substring(0, MAX_CV_LENGTH);
+    }
+    
+    // Send to backend for AI parsing
+    const response = await fetch(`${BACKEND_URL}/api/v1/form/parse-cv`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cvText })
+    });
+    
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.error || data.message || `Server error: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    const parsed = data.data || data;
+    
+    // Create profile directly from parsed CV
+    const profileData = flattenCVToProfile(parsed);
+    const firstName = parsed.personal?.first_name || "";
+    const lastName = parsed.personal?.last_name || "";
+    let profileName = firstName || lastName ? `CV - ${firstName} ${lastName}`.trim() : "CV Profile";
+    
+    // Check if a CV with same name exists, add number suffix if so
+    const existingNames = profiles.filter(p => p.isCV).map(p => p.name);
+    if (existingNames.includes(profileName)) {
+      let counter = 2;
+      while (existingNames.includes(`${profileName} (${counter})`)) {
+        counter++;
+      }
+      profileName = `${profileName} (${counter})`;
+    }
+    
+    const profile = {
+      id: "cv_" + Date.now(),
+      name: profileName,
+      isCV: true,
+      ...profileData
+    };
+    
+    // Add new CV profile (allow multiple)
+    profiles.unshift(profile);
+    await saveProfiles();
+    renderProfileSelect();
+    updateCVUI();
+    
+    // Auto-select the CV profile
+    profileSelect.value = profile.id;
+    profileSection.classList.remove("hide-profile-mode");
+    
+    // Show parsed results modal
+    showCVResultsModal(parsed, profileName);
+    
+    cvStatus.textContent = "CV saved as profile!";
+    setTimeout(() => { cvStatus.textContent = ""; }, 2000);
+    
+  } catch (err) {
+    console.error("CV parse error:", err);
+    cvStatus.textContent = "Error: " + err.message;
+    setTimeout(() => { cvStatus.textContent = ""; }, 3000);
+  } finally {
+    cvUploadArea.style.opacity = "";
+    cvUploadArea.style.pointerEvents = "";
+  }
+}
+
+function flattenCVToProfile(cv) {
+  const profile = {};
+  
+  // ===== PERSONAL INFO =====
+  if (cv.personal) {
+    const p = cv.personal;
+    if (p.first_name) profile.first_name = p.first_name;
+    if (p.last_name) profile.last_name = p.last_name;
+    if (p.full_name) profile.full_name = p.full_name;
+    else if (p.first_name && p.last_name) profile.full_name = `${p.first_name} ${p.last_name}`;
+    if (profile.full_name) profile.name = profile.full_name;
+    
+    if (p.email) profile.email = p.email;
+    if (p.phone) profile.phone = p.phone;
+    if (p.phone_secondary || p.phone_alt) profile.phone_secondary = p.phone_secondary || p.phone_alt;
+    
+    // Address fields
+    if (p.address) profile.address = p.address;
+    if (p.city) profile.city = p.city;
+    if (p.state) profile.state = p.state;
+    if (p.country) profile.country = p.country;
+    if (p.postal_code) profile.postal_code = p.postal_code;
+    if (p.city || p.state || p.country) {
+      profile.location = [p.city, p.state, p.country].filter(Boolean).join(", ");
+    }
+    
+    // Personal details
+    if (p.date_of_birth) profile.date_of_birth = p.date_of_birth;
+    if (p.nationality) profile.nationality = p.nationality;
+    if (p.gender) profile.gender = p.gender;
+    if (p.marital_status) profile.marital_status = p.marital_status;
+    
+    // Social/web links
+    if (p.linkedin) { profile.linkedin = p.linkedin; profile.linkedin_url = p.linkedin; }
+    if (p.github) { profile.github = p.github; profile.github_url = p.github; }
+    if (p.twitter) profile.twitter = p.twitter;
+    if (p.portfolio) { profile.portfolio = p.portfolio; profile.website = p.portfolio; }
+    if (p.website) profile.website = p.website;
+    if (p.blog) profile.blog = p.blog;
+    if (p.skype) profile.skype = p.skype;
+    
+    // Professional info
+    if (p.summary) {
+      profile.summary = p.summary;
+      profile.bio = p.summary;
+      profile.about = p.summary;
+      profile.professional_summary = p.summary;
+      profile.objective = p.summary;
+    }
+    if (p.headline) profile.headline = p.headline;
+    if (p.availability) profile.availability = p.availability;
+    if (p.desired_salary || p.salary_expectation) profile.desired_salary = p.desired_salary || p.salary_expectation;
+    if (p.willing_to_relocate) profile.willing_to_relocate = p.willing_to_relocate;
+  }
+  
+  // ===== FULL WORK EXPERIENCE (ALL JOBS) =====
+  if (cv.work_experience?.length > 0) {
+    profile.work_history = cv.work_experience;
+    
+    const current = cv.work_experience[0];
+    profile.current_company = current.company;
+    profile.current_title = current.title;
+    profile.job_title = current.title;
+    profile.title = current.title;
+    profile.position = current.title;
+    profile.company = current.company;
+    profile.employer = current.company;
+    if (current.department) profile.department = current.department;
+    if (current.employment_type) profile.employment_type = current.employment_type;
+    
+    const workExpText = cv.work_experience.map(job => {
+      const lines = [`${job.title} at ${job.company}`];
+      if (job.department) lines[0] += ` (${job.department})`;
+      if (job.start_date || job.end_date) {
+        lines.push(`${job.start_date || ''} - ${job.end_date || 'Present'}`);
+      }
+      if (job.location) lines.push(`Location: ${job.location}`);
+      if (job.description) lines.push(job.description);
+      if (job.responsibilities?.length) lines.push(`Responsibilities: ${job.responsibilities.join('; ')}`);
+      if (job.achievements?.length) lines.push(`Achievements: ${job.achievements.join('; ')}`);
+      const techs = job.technologies_used || job.technologies;
+      if (techs?.length) lines.push(`Technologies: ${techs.join(', ')}`);
+      return lines.join('\n');
+    }).join('\n\n');
+    
+    profile.work_experience = workExpText;
+    profile.experience = workExpText;
+    profile.employment_history = workExpText;
+    
+    let totalYears = 0;
+    cv.work_experience.forEach(job => {
+      const start = job.start_date ? parseInt(job.start_date.split('-')[0]) : null;
+      const end = job.end_date === 'Present' || job.is_current ? new Date().getFullYear() : 
+                  job.end_date ? parseInt(job.end_date.split('-')[0]) : null;
+      if (start && end) totalYears += (end - start);
+    });
+    if (totalYears > 0) {
+      profile.years_experience = `${totalYears}+ years`;
+      profile.experience_years = totalYears;
+    }
+  }
+  
+  // ===== FULL EDUCATION (ALL ENTRIES) =====
+  if (cv.education?.length > 0) {
+    profile.education_history = cv.education;
+    
+    const edu = cv.education[0];
+    profile.university = edu.institution;
+    profile.school = edu.institution;
+    profile.college = edu.institution;
+    profile.institution = edu.institution;
+    profile.degree = edu.degree;
+    profile.degree_type = edu.degree_type;
+    profile.field_of_study = edu.field;
+    profile.major = edu.field;
+    if (edu.minor) profile.minor = edu.minor;
+    if (edu.gpa) profile.gpa = edu.gpa;
+    if (edu.grade) profile.grade = edu.grade;
+    if (edu.honors) profile.honors = edu.honors;
+    if (edu.thesis) profile.thesis = edu.thesis;
+    if (edu.start_date) profile.education_start = edu.start_date;
+    if (edu.end_date) {
+      profile.education_end = edu.end_date;
+      profile.graduation_year = edu.end_date.split('-')[0];
+    }
+    
+    const eduText = cv.education.map(e => {
+      const parts = [];
+      if (e.degree) parts.push(e.degree);
+      if (e.field) parts.push(`in ${e.field}`);
+      if (e.institution) parts.push(`from ${e.institution}`);
+      if (e.end_date) parts.push(`(${e.end_date})`);
+      if (e.gpa) parts.push(`GPA: ${e.gpa}`);
+      if (e.honors) parts.push(`- ${e.honors}`);
+      return parts.join(' ');
+    }).join('\n');
+    
+    profile.education = eduText;
+    profile.academic_background = eduText;
+  }
+  
+  // ===== ALL SKILLS =====
+  if (cv.skills) {
+    profile.skills_data = cv.skills;
+    
+    if (cv.skills.technical?.length > 0) profile.technical_skills = cv.skills.technical.join(", ");
+    // Handle both old (programming_languages) and new (programming) field names
+    const progLangs = cv.skills.programming_languages || cv.skills.programming;
+    if (progLangs?.length > 0) profile.programming_languages = progLangs.join(", ");
+    if (cv.skills.frameworks?.length > 0) profile.frameworks = cv.skills.frameworks.join(", ");
+    if (cv.skills.databases?.length > 0) profile.databases = cv.skills.databases.join(", ");
+    if (cv.skills.cloud?.length > 0) profile.cloud_skills = cv.skills.cloud.join(", ");
+    if (cv.skills.tools?.length > 0) profile.tools = cv.skills.tools.join(", ");
+    if (cv.skills.methodologies?.length > 0) profile.methodologies = cv.skills.methodologies.join(", ");
+    if (cv.skills.soft_skills?.length > 0) profile.soft_skills = cv.skills.soft_skills.join(", ");
+    if (cv.skills.industry_knowledge?.length > 0) profile.industry_knowledge = cv.skills.industry_knowledge.join(", ");
+    if (cv.skills.other?.length > 0) profile.other_skills = cv.skills.other.join(", ");
+    
+    const allSkills = [
+      ...(cv.skills.technical || []),
+      ...(cv.skills.programming_languages || cv.skills.programming || []),
+      ...(cv.skills.frameworks || []),
+      ...(cv.skills.tools || []),
+      ...(cv.skills.databases || []),
+      ...(cv.skills.cloud || []),
+      ...(cv.skills.other || [])
+    ];
+    if (allSkills.length > 0) profile.skills = allSkills.join(", ");
+  }
+  
+  // ===== ALL LANGUAGES =====
+  if (cv.languages?.length > 0) {
+    profile.languages_data = cv.languages;
+    profile.languages = cv.languages.map(l => `${l.language} (${l.proficiency})`).join(", ");
+    profile.spoken_languages = cv.languages.map(l => l.language).join(", ");
+  }
+  
+  // ===== ALL CERTIFICATIONS =====
+  if (cv.certifications?.length > 0) {
+    profile.certifications_data = cv.certifications;
+    profile.certifications = cv.certifications.map(c => {
+      const parts = [c.name];
+      if (c.issuer) parts.push(`by ${c.issuer}`);
+      if (c.date) parts.push(`(${c.date})`);
+      return parts.join(' ');
+    }).join("; ");
+    profile.certification_names = cv.certifications.map(c => c.name).join(", ");
+  }
+  
+  // ===== ALL PROJECTS =====
+  if (cv.projects?.length > 0) {
+    profile.projects_data = cv.projects;
+    profile.projects = cv.projects.map(p => {
+      const parts = [p.name];
+      if (p.role) parts.push(`(${p.role})`);
+      if (p.description) parts.push(`: ${p.description}`);
+      if (p.technologies?.length) parts.push(`[${p.technologies.join(', ')}]`);
+      return parts.join(' ');
+    }).join('\n');
+    profile.project_names = cv.projects.map(p => p.name).join(", ");
+  }
+  
+  // ===== REFERENCES / REFEREES =====
+  if (cv.references?.length > 0) {
+    profile.references_data = cv.references;
+    profile.references = cv.references.map(r => {
+      if (r.available_on_request) return "Available on request";
+      const parts = [r.name];
+      if (r.title) parts.push(`(${r.title})`);
+      if (r.company) parts.push(`at ${r.company}`);
+      if (r.relationship) parts.push(`- ${r.relationship}`);
+      if (r.email) parts.push(`Email: ${r.email}`);
+      if (r.phone) parts.push(`Phone: ${r.phone}`);
+      return parts.join(' ');
+    }).join('\n');
+    profile.referees = profile.references;
+  }
+  
+  // ===== AWARDS =====
+  if (cv.awards?.length > 0) {
+    profile.awards_data = cv.awards;
+    profile.awards = cv.awards.map(a => {
+      const parts = [a.name];
+      if (a.issuer) parts.push(`from ${a.issuer}`);
+      if (a.date) parts.push(`(${a.date})`);
+      return parts.join(' ');
+    }).join("; ");
+  }
+  
+  // ===== PUBLICATIONS =====
+  if (cv.publications?.length > 0) {
+    profile.publications_data = cv.publications;
+    profile.publications = cv.publications.map(p => {
+      const parts = [p.title];
+      if (p.publisher) parts.push(`in ${p.publisher}`);
+      if (p.date) parts.push(`(${p.date})`);
+      return parts.join(' ');
+    }).join("; ");
+  }
+  
+  // ===== PATENTS =====
+  if (cv.patents?.length > 0) {
+    profile.patents_data = cv.patents;
+    profile.patents = cv.patents.map(p => {
+      const parts = [p.title];
+      if (p.patent_number) parts.push(`#${p.patent_number}`);
+      if (p.status) parts.push(`(${p.status})`);
+      return parts.join(' ');
+    }).join("; ");
+  }
+  
+  // ===== VOLUNTEER EXPERIENCE =====
+  // Handle both old (volunteer_experience) and new (volunteer) field names
+  const volunteerData = cv.volunteer_experience || cv.volunteer;
+  if (volunteerData?.length > 0) {
+    profile.volunteer_data = volunteerData;
+    profile.volunteer_experience = volunteerData.map(v => {
+      const parts = [v.role];
+      if (v.organization) parts.push(`at ${v.organization}`);
+      if (v.cause) parts.push(`(${v.cause})`);
+      return parts.join(' ');
+    }).join("; ");
+  }
+  
+  // ===== PROFESSIONAL MEMBERSHIPS =====
+  // Handle both old (professional_memberships) and new (memberships) field names
+  const membershipsData = cv.professional_memberships || cv.memberships;
+  if (membershipsData?.length > 0) {
+    profile.memberships_data = membershipsData;
+    profile.professional_memberships = membershipsData.map(m => {
+      const parts = [m.organization];
+      if (m.role) parts.push(`- ${m.role}`);
+      return parts.join(' ');
+    }).join("; ");
+  }
+  
+  // ===== COURSES =====
+  if (cv.courses?.length > 0) {
+    profile.courses_data = cv.courses;
+    profile.courses = cv.courses.map(c => {
+      const parts = [c.name];
+      if (c.provider) parts.push(`by ${c.provider}`);
+      if (c.date) parts.push(`(${c.date})`);
+      return parts.join(' ');
+    }).join("; ");
+  }
+  
+  // ===== INTERESTS =====
+  if (cv.interests?.length > 0) {
+    profile.interests = cv.interests.join(", ");
+    profile.hobbies = profile.interests;
+  }
+  
+  // ===== ADDITIONAL INFO =====
+  if (cv.additional_info) {
+    const ai = cv.additional_info;
+    if (ai.driving_license) profile.driving_license = ai.driving_license;
+    if (ai.visa_status) profile.visa_status = ai.visa_status;
+    if (ai.security_clearance) profile.security_clearance = ai.security_clearance;
+    if (ai.military_service || ai.military) profile.military_service = ai.military_service || ai.military;
+    if (ai.other) profile.additional_info = ai.other;
+  }
+  
+  // ===== ADDITIONAL SECTIONS (AI-detected non-standard sections) =====
+  if (cv.additional_sections?.length > 0) {
+    profile.additional_sections = cv.additional_sections;
+    // Also create flattened keys for each custom section
+    cv.additional_sections.forEach((section, idx) => {
+      const key = section.section_title
+        ? section.section_title.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')
+        : `custom_section_${idx}`;
+      if (Array.isArray(section.content)) {
+        profile[key] = section.content.join('; ');
+      } else if (typeof section.content === 'string') {
+        profile[key] = section.content;
+      } else if (section.content) {
+        profile[key] = JSON.stringify(section.content);
+      }
+    });
+  }
+  
+  // ===== STORE RAW CV DATA FOR AI =====
+  profile._rawCV = cv;
+  
+  return profile;
+}
+
+// CV upload event listeners
+cvUploadArea.addEventListener("click", () => cvFileInput.click());
+cvUploadArea.addEventListener("dragover", (e) => {
+  e.preventDefault();
+  cvUploadArea.style.borderColor = "var(--fg)";
+  cvUploadArea.style.background = "var(--accents-1)";
+});
+cvUploadArea.addEventListener("dragleave", () => {
+  cvUploadArea.style.borderColor = "";
+  cvUploadArea.style.background = "";
+});
+cvUploadArea.addEventListener("drop", (e) => {
+  e.preventDefault();
+  cvUploadArea.style.borderColor = "";
+  cvUploadArea.style.background = "";
+  const file = e.dataTransfer.files[0];
+  if (file) handleCVUpload(file);
+});
+cvFileInput.addEventListener("change", (e) => {
+  const file = e.target.files[0];
+  if (file) handleCVUpload(file);
+  cvFileInput.value = "";
+});
+
+document.getElementById("cv-clear-btn").addEventListener("click", async () => {
+  const cvProfiles = getCVProfiles();
+  if (cvProfiles.length === 0) return;
+  
+  if (cvProfiles.length === 1) {
+    // Just one CV, clear it
+    profiles = profiles.filter(p => !p.isCV);
+  } else {
+    // Multiple CVs, ask which to clear
+    const choice = confirm(`You have ${cvProfiles.length} CVs. Click OK to clear ALL, or Cancel to manage them in the profiles dropdown.`);
+    if (choice) {
+      profiles = profiles.filter(p => !p.isCV);
+    } else {
+      return;
+    }
+  }
+  await saveProfiles();
+  renderProfileSelect();
+  updateCVUI();
+});
+
 // Initialize auth and fill history on load
 loadAuthState();
 loadFillHistory();
+
+// Update CV UI after profiles load
+setTimeout(updateCVUI, 100);
