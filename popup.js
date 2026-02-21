@@ -8,6 +8,32 @@ const PRIVACY_POLICY_URL = ""; // e.g. BACKEND_URL + "/privacy" or your policy U
 // File inputs selected by user in preview (not saved to profile, just for current fill)
 let pendingFiles = {};
 
+// Analytics tracking - sends usage events to backend (non-blocking)
+async function trackEvent(eventData) {
+  if (!authState.accessToken) return;
+
+  try {
+    await fetch(`${BACKEND_URL}/api/v1/analytics/event`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${authState.accessToken}`
+      },
+      body: JSON.stringify(eventData)
+    });
+  } catch (err) {
+    console.log("[Autofill.AI] Analytics tracking failed (non-critical):", err.message);
+  }
+}
+
+function extractDomain(url) {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return null;
+  }
+}
+
 // Undo state - stores the previous form values before fill
 let lastFillSession = null;
 
@@ -215,12 +241,12 @@ function renderPreviewList() {
   if (!pendingValues && !pendingFields) return;
   previewList.innerHTML = "";
   pendingFiles = {};
-  
+
   // Get all keys from both fields and values
   const fieldKeys = pendingFields ? pendingFields.map((f) => f.key) : [];
   const valueKeys = pendingValues ? Object.keys(pendingValues) : [];
   const allKeys = [...new Set([...fieldKeys, ...valueKeys])];
-  
+
   for (const key of allKeys) {
     const value = pendingValues ? pendingValues[key] : undefined;
     const fieldType = getFieldType(key);
@@ -228,12 +254,13 @@ function renderPreviewList() {
     const row = document.createElement("div");
     row.className = "preview-row";
     row.dataset.key = key;
-    
+
     // Handle file inputs specially
     if (fieldType === "file") {
       // Check if this is a Google Form (file uploads can't be automated there)
-      const isGoogleFormFile = field.isGoogleForm === true;
-      
+      const field = pendingFields ? pendingFields.find(f => f.key === key) : null;
+      const isGoogleFormFile = field ? field.isGoogleForm === true : false;
+
       if (isGoogleFormFile) {
         // Google Forms file uploads require manual interaction
         row.innerHTML = `
@@ -258,10 +285,10 @@ function renderPreviewList() {
       previewList.appendChild(row);
       continue;
     }
-    
+
     // Skip undefined values for non-file fields
     if (value === undefined) continue;
-    
+
     const displayVal = value == null ? "" : String(value);
     row.innerHTML = `
       <span class="preview-key" title="${escapeAttr(label)}">${escapeHtml(label)}</span>
@@ -403,7 +430,7 @@ async function loadFillHistory() {
 function updateUndoButton() {
   const undoBtn = document.getElementById("undo-fill-btn");
   if (!undoBtn) return;
-  
+
   if (lastFillSession && lastFillSession.tabId) {
     undoBtn.style.display = "block";
     const timeAgo = getTimeAgo(lastFillSession.timestamp);
@@ -430,23 +457,23 @@ async function undoLastFill() {
     setTimeout(() => { status.innerText = ""; }, 2000);
     return;
   }
-  
+
   const status = document.getElementById("status");
   const undoBtn = document.getElementById("undo-fill-btn");
-  
+
   try {
     undoBtn.disabled = true;
     status.innerText = "Restoring previous values...";
-    
+
     // Get the current active tab
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    
+
     if (!tab || tab.id !== lastFillSession.tabId) {
       status.innerText = "Please go back to the original tab to undo";
       setTimeout(() => { status.innerText = ""; }, 3000);
       return;
     }
-    
+
     // Restore the previous values (including clearing fields that were empty)
     await chrome.scripting.executeScript({
       target: { tabId: lastFillSession.tabId },
@@ -458,14 +485,14 @@ async function undoLastFill() {
       },
       args: [lastFillSession.previousValues, Object.keys(lastFillSession.filledValues || {})]
     });
-    
+
     status.innerText = "Restored previous values!";
-    
+
     // Clear the undo history after successful restore
     lastFillSession = null;
     await chrome.storage.local.remove(FILL_HISTORY_KEY);
     updateUndoButton();
-    
+
     setTimeout(() => { status.innerText = ""; }, 2000);
   } catch (err) {
     status.innerText = "Undo failed: " + (err.message || "Unknown error");
@@ -479,17 +506,17 @@ async function confirmFill() {
     return;
   }
   if (currentTabId == null) return;
-  
+
   const status = document.getElementById("status");
   try {
     confirmFillBtn.disabled = true;
     status.innerText = "Capturing current state...";
-    
+
     // Capture the current form state before filling (for undo)
     const previousValues = await captureFormState(currentTabId);
-    
+
     status.innerText = "Filling form...";
-    
+
     // Fill text values
     if (pendingValues && Object.keys(pendingValues).length > 0) {
       await chrome.scripting.executeScript({
@@ -503,12 +530,12 @@ async function confirmFill() {
         args: [pendingValues, pendingFields || []]
       });
     }
-    
+
     // Handle file inputs - convert files to transferable format and fill them
     const fileKeys = Object.keys(pendingFiles);
     if (fileKeys.length > 0) {
       status.innerText = "Setting files...";
-      
+
       // Convert files to base64 for transfer
       const fileData = {};
       for (const key of fileKeys) {
@@ -520,7 +547,7 @@ async function confirmFill() {
           base64: base64
         };
       }
-      
+
       // Execute script to fill file inputs
       await chrome.scripting.executeScript({
         target: { tabId: currentTabId },
@@ -533,22 +560,46 @@ async function confirmFill() {
         args: [fileData]
       });
     }
-    
+
     // Save fill history for undo
+    const tabInfo = await chrome.tabs.get(currentTabId);
     await saveFillHistory({
       tabId: currentTabId,
       previousValues,
       filledValues: pendingValues,
       timestamp: Date.now(),
-      pageUrl: (await chrome.tabs.get(currentTabId)).url
+      pageUrl: tabInfo.url
     });
-    
+
+    // Track form fill event
+    const profile = getSelectedProfile();
+    const profileModeVal = profile ? getProfileMode() : null;
+    let fillMode = "ai_only";
+    if (profile && profileModeVal === "only") fillMode = "profile_only";
+    else if (profile && profileModeVal === "plus_ai") fillMode = "merged";
+
+    trackEvent({
+      type: "form_fill",
+      domain: extractDomain(tabInfo.url),
+      pageTitle: tabInfo.title,
+      fieldCount: pendingValues ? Object.keys(pendingValues).length : 0,
+      success: true,
+      profileId: profile?.id || null,
+      fillMode
+    });
+
     status.innerText = "Done! You can undo this fill.";
     setTimeout(() => {
       status.innerText = "";
     }, 3000);
   } catch (err) {
     status.innerText = "Error: " + (err.message || "Fill failed");
+
+    // Track failed fill
+    trackEvent({
+      type: "form_fill",
+      success: false
+    });
   } finally {
     confirmFillBtn.disabled = false;
     cancelPreview();
@@ -591,7 +642,7 @@ function renderProfileList() {
       </span>
     `;
     profileListEl.appendChild(row);
-    
+
     row.querySelector(".view-profile-btn").addEventListener("click", () => {
       // Show profile fields in an alert (simple approach)
       const fields = Object.keys(p)
@@ -600,7 +651,7 @@ function renderProfileList() {
         .join("\n");
       alert(`Profile: ${p.name}\n\n${fields || "No fields"}`);
     });
-    
+
     row.querySelector(".delete-profile-btn").addEventListener("click", () => {
       if (confirm(`Delete profile "${p.name}"?`)) {
         profiles = profiles.filter((x) => x.id !== p.id);
@@ -709,11 +760,11 @@ fillBtn.onclick = async () => {
       response = await fetch(`${BACKEND_URL}/api/v1/form/analyze`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          fields, 
-          context, 
-          pageUrl, 
-          pageTitle, 
+        body: JSON.stringify({
+          fields,
+          context,
+          pageUrl,
+          pageTitle,
           fillOnlyEmpty,
           profileData: profileDataForAI
         })
@@ -759,7 +810,7 @@ function updateAuthUI() {
     loggedOutView.style.display = "none";
     loggedInView.style.display = "block";
     userEmailEl.textContent = authState.user.email;
-    
+
     // Only show sync button if encryption is initialized
     if (window.CryptoUtils.isEncryptionInitialized()) {
       syncProfilesBtn.style.display = "inline";
@@ -780,17 +831,17 @@ async function apiRequest(endpoint, options = {}) {
     "Content-Type": "application/json",
     ...options.headers
   };
-  
+
   if (authState.accessToken) {
     headers["Authorization"] = `Bearer ${authState.accessToken}`;
   }
-  
+
   const response = await fetch(`${BACKEND_URL}/api/v1${endpoint}`, {
     ...options,
     headers,
     credentials: "include"
   });
-  
+
   if (response.status === 401 && authState.accessToken) {
     const refreshed = await refreshToken();
     if (refreshed) {
@@ -802,7 +853,7 @@ async function apiRequest(endpoint, options = {}) {
       });
     }
   }
-  
+
   return response;
 }
 
@@ -812,7 +863,7 @@ async function refreshToken() {
       method: "POST",
       credentials: "include"
     });
-    
+
     if (response.ok) {
       const data = await response.json();
       authState.accessToken = data.data.accessToken;
@@ -823,10 +874,14 @@ async function refreshToken() {
   } catch (err) {
     console.error("Token refresh failed:", err);
   }
-  
+
   authState = { accessToken: null, user: null };
   await saveAuthState();
   updateAuthUI();
+
+  const status = document.getElementById("status");
+  if (status) status.innerText = "Session expired. Please log in.";
+
   return false;
 }
 
@@ -837,27 +892,27 @@ async function login(email, password) {
     credentials: "include",
     body: JSON.stringify({ email, password })
   });
-  
+
   const data = await response.json();
-  
+
   if (!response.ok) {
     throw new Error(data.error || "Login failed");
   }
-  
+
   authState.accessToken = data.data.accessToken;
   authState.user = data.data.user;
   await saveAuthState();
-  
+
   // Initialize encryption with server-provided key
   if (data.data.encryptionKey) {
     await window.CryptoUtils.initializeEncryption(data.data.encryptionKey);
   }
-  
+
   updateAuthUI();
-  
+
   // Pull profiles from cloud (now we can decrypt them)
   await pullProfilesFromCloud();
-  
+
   return data;
 }
 
@@ -868,24 +923,24 @@ async function register(email, password, name) {
     credentials: "include",
     body: JSON.stringify({ email, password, name })
   });
-  
+
   const data = await response.json();
-  
+
   if (!response.ok) {
     throw new Error(data.error || "Registration failed");
   }
-  
+
   authState.accessToken = data.data.accessToken;
   authState.user = data.data.user;
   await saveAuthState();
-  
+
   // Initialize encryption with server-provided key
   if (data.data.encryptionKey) {
     await window.CryptoUtils.initializeEncryption(data.data.encryptionKey);
   }
-  
+
   updateAuthUI();
-  
+
   return data;
 }
 
@@ -895,10 +950,10 @@ async function logout() {
   } catch (err) {
     console.error("Logout error:", err);
   }
-  
+
   // Clear encryption state
   window.CryptoUtils.clearEncryption();
-  
+
   authState = { accessToken: null, user: null };
   await saveAuthState();
   updateAuthUI();
@@ -908,16 +963,16 @@ async function syncProfilesToCloud() {
   if (!authState.accessToken) {
     throw new Error("Not logged in");
   }
-  
+
   if (!window.CryptoUtils.isEncryptionInitialized()) {
     throw new Error("Please log in again to sync profiles");
   }
-  
+
   syncStatusEl.textContent = "Syncing...";
-  
+
   try {
     const encryptedProfiles = [];
-    
+
     for (const profile of profiles) {
       // Copy all profile data except id (name is kept separate)
       const profileData = {};
@@ -926,7 +981,7 @@ async function syncProfilesToCloud() {
           profileData[k] = profile[k];
         }
       });
-      
+
       const { encryptedData, iv } = await window.CryptoUtils.encryptData(profileData);
       encryptedProfiles.push({
         name: profile.name,
@@ -934,17 +989,17 @@ async function syncProfilesToCloud() {
         iv
       });
     }
-    
+
     const response = await apiRequest("/profiles/sync", {
       method: "POST",
       body: JSON.stringify({ profiles: encryptedProfiles })
     });
-    
+
     if (!response.ok) {
       const data = await response.json();
       throw new Error(data.error || "Sync failed");
     }
-    
+
     syncStatusEl.textContent = `Synced ${profiles.length} profile(s)`;
     setTimeout(() => { syncStatusEl.textContent = ""; }, 3000);
   } catch (err) {
@@ -955,32 +1010,32 @@ async function syncProfilesToCloud() {
 
 async function pullProfilesFromCloud() {
   if (!authState.accessToken) return;
-  
+
   if (!window.CryptoUtils.isEncryptionInitialized()) {
     syncStatusEl.textContent = "Log in again to load profiles";
     return;
   }
-  
+
   syncStatusEl.textContent = "Loading profiles...";
-  
+
   try {
     const response = await apiRequest("/profiles");
-    
+
     if (!response.ok) {
       throw new Error("Failed to fetch profiles");
     }
-    
+
     const data = await response.json();
     const cloudProfiles = data.data.profiles;
-    
+
     if (cloudProfiles.length === 0) {
       syncStatusEl.textContent = "No cloud profiles";
       setTimeout(() => { syncStatusEl.textContent = ""; }, 2000);
       return;
     }
-    
+
     const decryptedProfiles = [];
-    
+
     for (const cp of cloudProfiles) {
       try {
         const profileData = await window.CryptoUtils.decryptData(cp.encryptedData, cp.iv);
@@ -993,14 +1048,14 @@ async function pullProfilesFromCloud() {
         console.error("Failed to decrypt profile:", cp.name, err);
       }
     }
-    
+
     if (decryptedProfiles.length > 0) {
       profiles = decryptedProfiles;
       await saveProfiles();
       renderProfileSelect();
       renderProfileList();
     }
-    
+
     syncStatusEl.textContent = `Loaded ${decryptedProfiles.length} profile(s)`;
     setTimeout(() => { syncStatusEl.textContent = ""; }, 2000);
   } catch (err) {
@@ -1043,7 +1098,7 @@ loginForm.addEventListener("submit", async (e) => {
   const email = document.getElementById("login-email").value;
   const password = document.getElementById("login-password").value;
   const errorEl = document.getElementById("login-error");
-  
+
   try {
     errorEl.style.display = "none";
     await login(email, password);
@@ -1061,7 +1116,7 @@ registerForm.addEventListener("submit", async (e) => {
   const email = document.getElementById("register-email").value;
   const password = document.getElementById("register-password").value;
   const errorEl = document.getElementById("register-error");
-  
+
   try {
     errorEl.style.display = "none";
     await register(email, password, name);
@@ -1122,7 +1177,7 @@ function updateCVUI() {
   const cvParsedInfo = document.getElementById("cv-parsed-info");
   const cvParsedName = document.getElementById("cv-parsed-name");
   const cvParsedDetails = document.getElementById("cv-parsed-details");
-  
+
   if (cvProfiles.length > 0) {
     // Update toggle button text to show CV count
     if (cvProfiles.length === 1) {
@@ -1132,15 +1187,15 @@ function updateCVUI() {
     }
     cvToggleText.style.color = "var(--fg)";
     cvToggleText.style.fontWeight = "500";
-    
+
     // Always show upload area so user can add more
     cvUploadArea.style.display = "block";
     cvParsedInfo.style.display = "block";
-    
+
     // Show list of CV profiles
     const cvNames = cvProfiles.map(p => p.name.replace("CV - ", "")).join(", ");
     cvParsedName.textContent = cvProfiles.length === 1 ? cvProfiles[0].name.replace("CV - ", "") : `${cvProfiles.length} CVs`;
-    
+
     const latestCV = cvProfiles[0];
     const details = [];
     if (latestCV.email) details.push(latestCV.email);
@@ -1152,7 +1207,7 @@ function updateCVUI() {
     cvToggleText.textContent = "Upload CV / Resume";
     cvToggleText.style.color = "";
     cvToggleText.style.fontWeight = "";
-    
+
     cvUploadArea.style.display = "block";
     cvParsedInfo.style.display = "none";
   }
@@ -1164,7 +1219,7 @@ const cvResultsContent = document.getElementById("cv-results-content");
 
 function showCVResultsModal(parsed, profileName) {
   let html = '';
-  
+
   // Personal Info
   if (parsed.personal) {
     const p = parsed.personal;
@@ -1191,7 +1246,7 @@ function showCVResultsModal(parsed, profileName) {
     if (p.desired_salary) html += `<div class="cv-item"><strong>Desired Salary:</strong> ${p.desired_salary}</div>`;
     html += `</div>`;
   }
-  
+
   // Work Experience
   if (parsed.work_experience?.length > 0) {
     html += `<div class="cv-section">
@@ -1211,7 +1266,7 @@ function showCVResultsModal(parsed, profileName) {
     });
     html += `</div>`;
   }
-  
+
   // Education
   if (parsed.education?.length > 0) {
     html += `<div class="cv-section">
@@ -1231,7 +1286,7 @@ function showCVResultsModal(parsed, profileName) {
     });
     html += `</div>`;
   }
-  
+
   // Skills
   if (parsed.skills) {
     const allSkills = [
@@ -1266,7 +1321,7 @@ function showCVResultsModal(parsed, profileName) {
       </div>`;
     }
   }
-  
+
   // Languages
   if (parsed.languages?.length > 0) {
     html += `<div class="cv-section">
@@ -1283,7 +1338,7 @@ function showCVResultsModal(parsed, profileName) {
       </div>
     </div>`;
   }
-  
+
   // Certifications
   if (parsed.certifications?.length > 0) {
     html += `<div class="cv-section">
@@ -1299,7 +1354,7 @@ function showCVResultsModal(parsed, profileName) {
     });
     html += `</div>`;
   }
-  
+
   // Projects
   if (parsed.projects?.length > 0) {
     html += `<div class="cv-section">
@@ -1314,7 +1369,7 @@ function showCVResultsModal(parsed, profileName) {
     });
     html += `</div>`;
   }
-  
+
   // References
   if (parsed.references?.length > 0) {
     html += `<div class="cv-section">
@@ -1337,7 +1392,7 @@ function showCVResultsModal(parsed, profileName) {
     });
     html += `</div>`;
   }
-  
+
   // Awards
   if (parsed.awards?.length > 0) {
     html += `<div class="cv-section">
@@ -1353,7 +1408,7 @@ function showCVResultsModal(parsed, profileName) {
     });
     html += `</div>`;
   }
-  
+
   // Publications
   if (parsed.publications?.length > 0) {
     html += `<div class="cv-section">
@@ -1369,7 +1424,7 @@ function showCVResultsModal(parsed, profileName) {
     });
     html += `</div>`;
   }
-  
+
   // Volunteer Experience (handle both old and new field names)
   const volunteerData = parsed.volunteer_experience || parsed.volunteer;
   if (volunteerData?.length > 0) {
@@ -1385,7 +1440,7 @@ function showCVResultsModal(parsed, profileName) {
     });
     html += `</div>`;
   }
-  
+
   // Professional Memberships (handle both old and new field names)
   const membershipsData = parsed.professional_memberships || parsed.memberships;
   if (membershipsData?.length > 0) {
@@ -1396,7 +1451,7 @@ function showCVResultsModal(parsed, profileName) {
     });
     html += `</div>`;
   }
-  
+
   // Courses
   if (parsed.courses?.length > 0) {
     html += `<div class="cv-section">
@@ -1406,7 +1461,7 @@ function showCVResultsModal(parsed, profileName) {
     });
     html += `</div>`;
   }
-  
+
   // Interests
   if (parsed.interests?.length > 0) {
     html += `<div class="cv-section">
@@ -1416,7 +1471,7 @@ function showCVResultsModal(parsed, profileName) {
       </div>
     </div>`;
   }
-  
+
   // Additional Info
   if (parsed.additional_info) {
     const ai = parsed.additional_info;
@@ -1432,7 +1487,7 @@ function showCVResultsModal(parsed, profileName) {
       html += `</div>`;
     }
   }
-  
+
   // Additional Sections (AI-detected non-standard sections)
   if (parsed.additional_sections?.length > 0) {
     parsed.additional_sections.forEach(section => {
@@ -1462,12 +1517,12 @@ function showCVResultsModal(parsed, profileName) {
       html += `</div>`;
     });
   }
-  
+
   // Show success message
   html = `<div style="background: #d1fae5; color: #065f46; padding: 8px; border-radius: 4px; margin-bottom: 12px; font-size: 10px;">
     Saved as profile: <strong>${profileName}</strong>
   </div>` + html;
-  
+
   cvResultsContent.innerHTML = html;
   cvResultsModal.style.display = "block";
 }
@@ -1489,7 +1544,7 @@ async function readFileAsText(file) {
     const reader = new FileReader();
     reader.onload = () => resolve(reader.result);
     reader.onerror = reject;
-    
+
     if (file.type === "application/pdf") {
       // For PDF, we'll send to backend which can handle it
       // For now, read as array buffer and convert
@@ -1504,11 +1559,11 @@ async function extractTextFromPDF(arrayBuffer) {
   // Simple PDF text extraction - for complex PDFs, backend should handle
   const uint8Array = new Uint8Array(arrayBuffer);
   let text = "";
-  
+
   // Try to extract text between stream markers (basic approach)
   const decoder = new TextDecoder("utf-8", { fatal: false });
   const content = decoder.decode(uint8Array);
-  
+
   // Extract text from PDF streams (simplified)
   const textMatches = content.match(/\(([^)]+)\)/g);
   if (textMatches) {
@@ -1517,7 +1572,7 @@ async function extractTextFromPDF(arrayBuffer) {
       .filter(t => t.length > 1 && !/^[\\\/\d\s]+$/.test(t))
       .join(" ");
   }
-  
+
   // If that didn't work well, try another approach
   if (text.length < 100) {
     // Look for text between BT and ET markers
@@ -1529,20 +1584,20 @@ async function extractTextFromPDF(arrayBuffer) {
         .replace(/\s+/g, " ");
     }
   }
-  
+
   return text || "Could not extract text from PDF. Please try a .txt or .docx file.";
 }
 
 async function handleCVUpload(file) {
   if (!file) return;
-  
+
   cvStatus.textContent = "Parsing...";
   cvUploadArea.style.opacity = "0.5";
   cvUploadArea.style.pointerEvents = "none";
-  
+
   try {
     let cvText = "";
-    
+
     if (file.type === "application/pdf") {
       const arrayBuffer = await readFileAsText(file);
       cvText = await extractTextFromPDF(arrayBuffer);
@@ -1559,39 +1614,39 @@ async function handleCVUpload(file) {
     } else {
       cvText = await file.text();
     }
-    
+
     if (!cvText || cvText.length < 50) {
       throw new Error("Could not extract enough text from file. Please try a different format.");
     }
-    
+
     // Limit CV text size to avoid API limits (max ~30KB of text)
     const MAX_CV_LENGTH = 30000;
     if (cvText.length > MAX_CV_LENGTH) {
       console.log(`CV text truncated from ${cvText.length} to ${MAX_CV_LENGTH} chars`);
       cvText = cvText.substring(0, MAX_CV_LENGTH);
     }
-    
+
     // Send to backend for AI parsing
     const response = await fetch(`${BACKEND_URL}/api/v1/form/parse-cv`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ cvText })
     });
-    
+
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
       throw new Error(data.error || data.message || `Server error: ${response.status}`);
     }
-    
+
     const data = await response.json();
     const parsed = data.data || data;
-    
+
     // Create profile directly from parsed CV
     const profileData = flattenCVToProfile(parsed);
     const firstName = parsed.personal?.first_name || "";
     const lastName = parsed.personal?.last_name || "";
     let profileName = firstName || lastName ? `CV - ${firstName} ${lastName}`.trim() : "CV Profile";
-    
+
     // Check if a CV with same name exists, add number suffix if so
     const existingNames = profiles.filter(p => p.isCV).map(p => p.name);
     if (existingNames.includes(profileName)) {
@@ -1601,33 +1656,46 @@ async function handleCVUpload(file) {
       }
       profileName = `${profileName} (${counter})`;
     }
-    
+
     const profile = {
       id: "cv_" + Date.now(),
       name: profileName,
       isCV: true,
       ...profileData
     };
-    
+
     // Add new CV profile (allow multiple)
     profiles.unshift(profile);
     await saveProfiles();
     renderProfileSelect();
     updateCVUI();
-    
+
     // Auto-select the CV profile
     profileSelect.value = profile.id;
     profileSection.classList.remove("hide-profile-mode");
-    
+
     // Show parsed results modal
     showCVResultsModal(parsed, profileName);
-    
+
+    // Track CV parse event
+    trackEvent({
+      type: "cv_parse",
+      success: true
+    });
+
     cvStatus.textContent = "CV saved as profile!";
     setTimeout(() => { cvStatus.textContent = ""; }, 2000);
-    
+
   } catch (err) {
     console.error("CV parse error:", err);
     cvStatus.textContent = "Error: " + err.message;
+
+    // Track failed CV parse
+    trackEvent({
+      type: "cv_parse",
+      success: false
+    });
+
     setTimeout(() => { cvStatus.textContent = ""; }, 3000);
   } finally {
     cvUploadArea.style.opacity = "";
@@ -1637,7 +1705,7 @@ async function handleCVUpload(file) {
 
 function flattenCVToProfile(cv) {
   const profile = {};
-  
+
   // ===== PERSONAL INFO =====
   if (cv.personal) {
     const p = cv.personal;
@@ -1646,11 +1714,11 @@ function flattenCVToProfile(cv) {
     if (p.full_name) profile.full_name = p.full_name;
     else if (p.first_name && p.last_name) profile.full_name = `${p.first_name} ${p.last_name}`;
     if (profile.full_name) profile.name = profile.full_name;
-    
+
     if (p.email) profile.email = p.email;
     if (p.phone) profile.phone = p.phone;
     if (p.phone_secondary || p.phone_alt) profile.phone_secondary = p.phone_secondary || p.phone_alt;
-    
+
     // Address fields
     if (p.address) profile.address = p.address;
     if (p.city) profile.city = p.city;
@@ -1660,13 +1728,13 @@ function flattenCVToProfile(cv) {
     if (p.city || p.state || p.country) {
       profile.location = [p.city, p.state, p.country].filter(Boolean).join(", ");
     }
-    
+
     // Personal details
     if (p.date_of_birth) profile.date_of_birth = p.date_of_birth;
     if (p.nationality) profile.nationality = p.nationality;
     if (p.gender) profile.gender = p.gender;
     if (p.marital_status) profile.marital_status = p.marital_status;
-    
+
     // Social/web links
     if (p.linkedin) { profile.linkedin = p.linkedin; profile.linkedin_url = p.linkedin; }
     if (p.github) { profile.github = p.github; profile.github_url = p.github; }
@@ -1675,7 +1743,7 @@ function flattenCVToProfile(cv) {
     if (p.website) profile.website = p.website;
     if (p.blog) profile.blog = p.blog;
     if (p.skype) profile.skype = p.skype;
-    
+
     // Professional info
     if (p.summary) {
       profile.summary = p.summary;
@@ -1689,11 +1757,11 @@ function flattenCVToProfile(cv) {
     if (p.desired_salary || p.salary_expectation) profile.desired_salary = p.desired_salary || p.salary_expectation;
     if (p.willing_to_relocate) profile.willing_to_relocate = p.willing_to_relocate;
   }
-  
+
   // ===== FULL WORK EXPERIENCE (ALL JOBS) =====
   if (cv.work_experience?.length > 0) {
     profile.work_history = cv.work_experience;
-    
+
     const current = cv.work_experience[0];
     profile.current_company = current.company;
     profile.current_title = current.title;
@@ -1704,7 +1772,7 @@ function flattenCVToProfile(cv) {
     profile.employer = current.company;
     if (current.department) profile.department = current.department;
     if (current.employment_type) profile.employment_type = current.employment_type;
-    
+
     const workExpText = cv.work_experience.map(job => {
       const lines = [`${job.title} at ${job.company}`];
       if (job.department) lines[0] += ` (${job.department})`;
@@ -1719,16 +1787,16 @@ function flattenCVToProfile(cv) {
       if (techs?.length) lines.push(`Technologies: ${techs.join(', ')}`);
       return lines.join('\n');
     }).join('\n\n');
-    
+
     profile.work_experience = workExpText;
     profile.experience = workExpText;
     profile.employment_history = workExpText;
-    
+
     let totalYears = 0;
     cv.work_experience.forEach(job => {
       const start = job.start_date ? parseInt(job.start_date.split('-')[0]) : null;
-      const end = job.end_date === 'Present' || job.is_current ? new Date().getFullYear() : 
-                  job.end_date ? parseInt(job.end_date.split('-')[0]) : null;
+      const end = job.end_date === 'Present' || job.is_current ? new Date().getFullYear() :
+        job.end_date ? parseInt(job.end_date.split('-')[0]) : null;
       if (start && end) totalYears += (end - start);
     });
     if (totalYears > 0) {
@@ -1736,11 +1804,11 @@ function flattenCVToProfile(cv) {
       profile.experience_years = totalYears;
     }
   }
-  
+
   // ===== FULL EDUCATION (ALL ENTRIES) =====
   if (cv.education?.length > 0) {
     profile.education_history = cv.education;
-    
+
     const edu = cv.education[0];
     profile.university = edu.institution;
     profile.school = edu.institution;
@@ -1760,7 +1828,7 @@ function flattenCVToProfile(cv) {
       profile.education_end = edu.end_date;
       profile.graduation_year = edu.end_date.split('-')[0];
     }
-    
+
     const eduText = cv.education.map(e => {
       const parts = [];
       if (e.degree) parts.push(e.degree);
@@ -1771,15 +1839,15 @@ function flattenCVToProfile(cv) {
       if (e.honors) parts.push(`- ${e.honors}`);
       return parts.join(' ');
     }).join('\n');
-    
+
     profile.education = eduText;
     profile.academic_background = eduText;
   }
-  
+
   // ===== ALL SKILLS =====
   if (cv.skills) {
     profile.skills_data = cv.skills;
-    
+
     if (cv.skills.technical?.length > 0) profile.technical_skills = cv.skills.technical.join(", ");
     // Handle both old (programming_languages) and new (programming) field names
     const progLangs = cv.skills.programming_languages || cv.skills.programming;
@@ -1792,7 +1860,7 @@ function flattenCVToProfile(cv) {
     if (cv.skills.soft_skills?.length > 0) profile.soft_skills = cv.skills.soft_skills.join(", ");
     if (cv.skills.industry_knowledge?.length > 0) profile.industry_knowledge = cv.skills.industry_knowledge.join(", ");
     if (cv.skills.other?.length > 0) profile.other_skills = cv.skills.other.join(", ");
-    
+
     const allSkills = [
       ...(cv.skills.technical || []),
       ...(cv.skills.programming_languages || cv.skills.programming || []),
@@ -1804,14 +1872,14 @@ function flattenCVToProfile(cv) {
     ];
     if (allSkills.length > 0) profile.skills = allSkills.join(", ");
   }
-  
+
   // ===== ALL LANGUAGES =====
   if (cv.languages?.length > 0) {
     profile.languages_data = cv.languages;
     profile.languages = cv.languages.map(l => `${l.language} (${l.proficiency})`).join(", ");
     profile.spoken_languages = cv.languages.map(l => l.language).join(", ");
   }
-  
+
   // ===== ALL CERTIFICATIONS =====
   if (cv.certifications?.length > 0) {
     profile.certifications_data = cv.certifications;
@@ -1823,7 +1891,7 @@ function flattenCVToProfile(cv) {
     }).join("; ");
     profile.certification_names = cv.certifications.map(c => c.name).join(", ");
   }
-  
+
   // ===== ALL PROJECTS =====
   if (cv.projects?.length > 0) {
     profile.projects_data = cv.projects;
@@ -1836,7 +1904,7 @@ function flattenCVToProfile(cv) {
     }).join('\n');
     profile.project_names = cv.projects.map(p => p.name).join(", ");
   }
-  
+
   // ===== REFERENCES / REFEREES =====
   if (cv.references?.length > 0) {
     profile.references_data = cv.references;
@@ -1852,7 +1920,7 @@ function flattenCVToProfile(cv) {
     }).join('\n');
     profile.referees = profile.references;
   }
-  
+
   // ===== AWARDS =====
   if (cv.awards?.length > 0) {
     profile.awards_data = cv.awards;
@@ -1863,7 +1931,7 @@ function flattenCVToProfile(cv) {
       return parts.join(' ');
     }).join("; ");
   }
-  
+
   // ===== PUBLICATIONS =====
   if (cv.publications?.length > 0) {
     profile.publications_data = cv.publications;
@@ -1874,7 +1942,7 @@ function flattenCVToProfile(cv) {
       return parts.join(' ');
     }).join("; ");
   }
-  
+
   // ===== PATENTS =====
   if (cv.patents?.length > 0) {
     profile.patents_data = cv.patents;
@@ -1885,7 +1953,7 @@ function flattenCVToProfile(cv) {
       return parts.join(' ');
     }).join("; ");
   }
-  
+
   // ===== VOLUNTEER EXPERIENCE =====
   // Handle both old (volunteer_experience) and new (volunteer) field names
   const volunteerData = cv.volunteer_experience || cv.volunteer;
@@ -1898,7 +1966,7 @@ function flattenCVToProfile(cv) {
       return parts.join(' ');
     }).join("; ");
   }
-  
+
   // ===== PROFESSIONAL MEMBERSHIPS =====
   // Handle both old (professional_memberships) and new (memberships) field names
   const membershipsData = cv.professional_memberships || cv.memberships;
@@ -1910,7 +1978,7 @@ function flattenCVToProfile(cv) {
       return parts.join(' ');
     }).join("; ");
   }
-  
+
   // ===== COURSES =====
   if (cv.courses?.length > 0) {
     profile.courses_data = cv.courses;
@@ -1921,13 +1989,13 @@ function flattenCVToProfile(cv) {
       return parts.join(' ');
     }).join("; ");
   }
-  
+
   // ===== INTERESTS =====
   if (cv.interests?.length > 0) {
     profile.interests = cv.interests.join(", ");
     profile.hobbies = profile.interests;
   }
-  
+
   // ===== ADDITIONAL INFO =====
   if (cv.additional_info) {
     const ai = cv.additional_info;
@@ -1937,7 +2005,7 @@ function flattenCVToProfile(cv) {
     if (ai.military_service || ai.military) profile.military_service = ai.military_service || ai.military;
     if (ai.other) profile.additional_info = ai.other;
   }
-  
+
   // ===== ADDITIONAL SECTIONS (AI-detected non-standard sections) =====
   if (cv.additional_sections?.length > 0) {
     profile.additional_sections = cv.additional_sections;
@@ -1955,10 +2023,10 @@ function flattenCVToProfile(cv) {
       }
     });
   }
-  
+
   // ===== STORE RAW CV DATA FOR AI =====
   profile._rawCV = cv;
-  
+
   return profile;
 }
 
@@ -1989,7 +2057,7 @@ cvFileInput.addEventListener("change", (e) => {
 document.getElementById("cv-clear-btn").addEventListener("click", async () => {
   const cvProfiles = getCVProfiles();
   if (cvProfiles.length === 0) return;
-  
+
   if (cvProfiles.length === 1) {
     // Just one CV, clear it
     profiles = profiles.filter(p => !p.isCV);
@@ -2013,3 +2081,121 @@ loadFillHistory();
 
 // Update CV UI after profiles load
 setTimeout(updateCVUI, 100);
+
+// ==================== KEYBOARD SHORTCUTS ====================
+
+// Save selected profile preference for shortcut use
+profileSelect.addEventListener("change", async () => {
+  profileSection.classList.toggle("hide-profile-mode", !profileSelect.value);
+  await chrome.storage.local.set({ selectedProfileId: profileSelect.value || null });
+});
+
+// Save profile mode preference
+document.querySelectorAll('input[name="profileMode"]').forEach(radio => {
+  radio.addEventListener("change", async () => {
+    await chrome.storage.local.set({ profileMode: getProfileMode() });
+  });
+});
+
+// Popup keyboard shortcuts
+document.addEventListener("keydown", (e) => {
+  const isInInput = ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName);
+  
+  // Enter key - Confirm fill when in preview mode
+  if (e.key === "Enter" && !isInInput) {
+    if (previewSection.classList.contains("visible")) {
+      e.preventDefault();
+      confirmFill();
+    } else if (!fillBtn.disabled) {
+      e.preventDefault();
+      fillBtn.click();
+    }
+  }
+  
+  // Escape key - Cancel preview or close modals
+  if (e.key === "Escape") {
+    e.preventDefault();
+    
+    // Close CV results modal if open
+    if (cvResultsModal.style.display === "block") {
+      cvResultsModal.style.display = "none";
+      return;
+    }
+    
+    // Close login modal if open
+    if (loginModal.style.display === "block") {
+      loginModal.style.display = "none";
+      return;
+    }
+    
+    // Close manage profiles panel if open
+    if (manageProfilesPanel.classList.contains("visible")) {
+      manageProfilesPanel.classList.remove("visible");
+      return;
+    }
+    
+    // Cancel preview if in preview mode
+    if (previewSection.classList.contains("visible")) {
+      cancelPreview();
+      return;
+    }
+  }
+  
+  // Cmd/Ctrl + U - Undo fill
+  if ((e.metaKey || e.ctrlKey) && e.key === "u") {
+    e.preventDefault();
+    if (lastFillSession) {
+      undoLastFill();
+    }
+  }
+  
+  // Number keys 1-9 - Quick profile selection (when not in input)
+  if (!isInInput && e.key >= "1" && e.key <= "9" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+    const profileIndex = parseInt(e.key) - 1;
+    if (profiles[profileIndex]) {
+      profileSelect.value = profiles[profileIndex].id;
+      profileSection.classList.remove("hide-profile-mode");
+      chrome.storage.local.set({ selectedProfileId: profiles[profileIndex].id });
+      
+      // Show brief feedback
+      const status = document.getElementById("status");
+      status.innerText = `Profile: ${profiles[profileIndex].name}`;
+      setTimeout(() => { if (!pendingValues) status.innerText = ""; }, 1500);
+    }
+  }
+  
+  // 0 key - Select "None (AI only)"
+  if (!isInInput && e.key === "0" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+    profileSelect.value = "";
+    profileSection.classList.add("hide-profile-mode");
+    chrome.storage.local.set({ selectedProfileId: null });
+    
+    const status = document.getElementById("status");
+    status.innerText = "Profile: None (AI only)";
+    setTimeout(() => { if (!pendingValues) status.innerText = ""; }, 1500);
+  }
+});
+
+// Load saved preferences on startup
+(async () => {
+  const stored = await chrome.storage.local.get(["selectedProfileId", "profileMode"]);
+  if (stored.selectedProfileId && profiles.find(p => p.id === stored.selectedProfileId)) {
+    profileSelect.value = stored.selectedProfileId;
+    profileSection.classList.remove("hide-profile-mode");
+  }
+  if (stored.profileMode) {
+    const radio = document.querySelector(`input[name="profileMode"][value="${stored.profileMode}"]`);
+    if (radio) radio.checked = true;
+  }
+})();
+
+// Shortcuts help toggle
+const shortcutsToggle = document.getElementById("shortcuts-toggle");
+const shortcutsList = document.getElementById("shortcuts-list");
+const shortcutsArrow = document.getElementById("shortcuts-arrow");
+
+shortcutsToggle.addEventListener("click", () => {
+  const isVisible = shortcutsList.style.display !== "none";
+  shortcutsList.style.display = isVisible ? "none" : "block";
+  shortcutsArrow.style.transform = isVisible ? "" : "rotate(180deg)";
+});

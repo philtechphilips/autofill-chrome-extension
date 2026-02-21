@@ -704,6 +704,49 @@
 
   <div class="divider"></div>
 
+  <!-- Keyboard Shortcuts Help -->
+  <div id="shortcuts-section">
+    <button type="button" id="shortcuts-toggle" style="background: none; border: none; padding: 0; font-size: 11px; color: var(--accents-4); cursor: pointer; display: flex; align-items: center; gap: 4px; margin-bottom: 8px;">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="2" y="4" width="20" height="16" rx="2"/>
+        <path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h8M6 16h.01M18 16h.01"/>
+      </svg>
+      <span>Keyboard Shortcuts</span>
+      <svg id="shortcuts-arrow" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="transition: transform 0.2s;">
+        <polyline points="6 9 12 15 18 9"/>
+      </svg>
+    </button>
+    <div id="shortcuts-list" style="display: none; font-size: 10px; background: var(--accents-1); border-radius: var(--radius); padding: 10px; margin-bottom: 12px;">
+      <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+        <span style="color: var(--accents-4);">Open Popup</span>
+        <kbd style="background: var(--bg); border: 1px solid var(--accents-2); border-radius: 3px; padding: 1px 5px; font-family: 'Geist Mono', monospace; font-size: 9px;">⌥⇧Y</kbd>
+      </div>
+      <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+        <span style="color: var(--accents-4);">Quick Autofill (no popup)</span>
+        <kbd style="background: var(--bg); border: 1px solid var(--accents-2); border-radius: 3px; padding: 1px 5px; font-family: 'Geist Mono', monospace; font-size: 9px;">⌃⇧F</kbd>
+      </div>
+      <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+        <span style="color: var(--accents-4);">Undo Last Fill</span>
+        <kbd style="background: var(--bg); border: 1px solid var(--accents-2); border-radius: 3px; padding: 1px 5px; font-family: 'Geist Mono', monospace; font-size: 9px;">⌃⇧Z</kbd>
+      </div>
+      <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+        <span style="color: var(--accents-4);">Confirm Fill</span>
+        <kbd style="background: var(--bg); border: 1px solid var(--accents-2); border-radius: 3px; padding: 1px 5px; font-family: 'Geist Mono', monospace; font-size: 9px;">Enter</kbd>
+      </div>
+      <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+        <span style="color: var(--accents-4);">Cancel / Close</span>
+        <kbd style="background: var(--bg); border: 1px solid var(--accents-2); border-radius: 3px; padding: 1px 5px; font-family: 'Geist Mono', monospace; font-size: 9px;">Esc</kbd>
+      </div>
+      <div style="display: flex; justify-content: space-between;">
+        <span style="color: var(--accents-4);">Quick Profile (1-9, 0=none)</span>
+        <kbd style="background: var(--bg); border: 1px solid var(--accents-2); border-radius: 3px; padding: 1px 5px; font-family: 'Geist Mono', monospace; font-size: 9px;">1-9</kbd>
+      </div>
+      <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--accents-2); font-size: 9px; color: var(--accents-3);">
+        Customize shortcuts: chrome://extensions/shortcuts
+      </div>
+    </div>
+  </div>
+
   <div class="meta">
     <span>v0.1.0</span>
   </div>
