@@ -1265,15 +1265,24 @@ loginForm.addEventListener("submit", async (e) => {
   const email = document.getElementById("login-email").value;
   const password = document.getElementById("login-password").value;
   const errorEl = document.getElementById("login-error");
+  const submitBtn = document.getElementById("login-submit");
+  const cancelBtn = document.getElementById("login-cancel");
 
   try {
     errorEl.style.display = "none";
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Signing in...";
+    cancelBtn.disabled = true;
     await login(email, password);
     loginModal.style.display = "none";
     loginForm.reset();
   } catch (err) {
     errorEl.textContent = err.message;
     errorEl.style.display = "block";
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = "Sign In";
+    cancelBtn.disabled = false;
   }
 });
 
@@ -1283,15 +1292,24 @@ registerForm.addEventListener("submit", async (e) => {
   const email = document.getElementById("register-email").value;
   const password = document.getElementById("register-password").value;
   const errorEl = document.getElementById("register-error");
+  const submitBtn = document.getElementById("register-submit");
+  const cancelBtn = document.getElementById("register-cancel");
 
   try {
     errorEl.style.display = "none";
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Registering...";
+    cancelBtn.disabled = true;
     await register(email, password, name);
     loginModal.style.display = "none";
     registerForm.reset();
   } catch (err) {
     errorEl.textContent = err.message;
     errorEl.style.display = "block";
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = "Register";
+    cancelBtn.disabled = false;
   }
 });
 
