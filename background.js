@@ -1,4 +1,4 @@
-const BACKEND_URL = "http://localhost:9000";
+const BACKEND_URL = "https://api.autofill.live";
 const FRONTEND_URL = "https://autofill.live";
 const AUTH_STORAGE_KEY = "autofill_auth";
 const STORAGE_KEY = "autofill_profiles";
