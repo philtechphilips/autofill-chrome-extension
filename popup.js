@@ -1,9 +1,14 @@
-const BACKEND_URL = "http://localhost:9000";
+  const BACKEND_URL = "http://localhost:9000";
+const FRONTEND_URL = "https://autofill.live";
 const STORAGE_KEY = "autofill_profiles";
 const PRIVACY_NOTICE_KEY = "autofill_privacy_notice_dismissed";
 const AUTH_STORAGE_KEY = "autofill_auth";
 const FILL_HISTORY_KEY = "autofill_fill_history";
+const CREDITS_CACHE_KEY = "autofill_credits_cache";
 const PRIVACY_POLICY_URL = "https://autofill.live/privacy";
+
+// Credits state
+let userCredits = 0;
 
 // File inputs selected by user in preview (not saved to profile, just for current fill)
 let pendingFiles = {};
@@ -41,6 +46,18 @@ let authState = {
   accessToken: null,
   user: null
 };
+
+// UI Elements for credits
+const creditsDisplay = document.getElementById("credits-display");
+const creditsAmount = document.getElementById("credits-amount");
+const buyCreditsLink = document.getElementById("buy-credits-link");
+const loginRequiredNotice = document.getElementById("login-required-notice");
+const loginRequiredBtn = document.getElementById("login-required-btn");
+const emailVerificationNotice = document.getElementById("email-verification-notice");
+const resendVerificationBtn = document.getElementById("resend-verification-btn");
+const insufficientCreditsNotice = document.getElementById("insufficient-credits-notice");
+const buyCreditsBtn = document.getElementById("buy-credits-btn");
+const dashboardLink = document.getElementById("dashboard-link");
 
 const fillBtn = document.getElementById("fill");
 const backendOffEl = document.getElementById("backend-off");
@@ -417,26 +434,33 @@ async function captureFormState(tabId) {
 async function saveFillHistory(session) {
   lastFillSession = session;
   await chrome.storage.local.set({ [FILL_HISTORY_KEY]: session });
-  updateUndoButton();
+  await updateUndoButton();
 }
 
 async function loadFillHistory() {
   const out = await chrome.storage.local.get(FILL_HISTORY_KEY);
   lastFillSession = out[FILL_HISTORY_KEY] || null;
-  updateUndoButton();
+  await updateUndoButton();
 }
 
-function updateUndoButton() {
+async function updateUndoButton() {
   const undoBtn = document.getElementById("undo-fill-btn");
   if (!undoBtn) return;
 
   if (lastFillSession && lastFillSession.tabId) {
-    undoBtn.style.display = "block";
-    const timeAgo = getTimeAgo(lastFillSession.timestamp);
-    undoBtn.title = `Undo fill from ${timeAgo}`;
-  } else {
-    undoBtn.style.display = "none";
+    try {
+      const [currentTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (currentTab && currentTab.id === lastFillSession.tabId) {
+        undoBtn.classList.add("visible");
+        const timeAgo = getTimeAgo(lastFillSession.timestamp);
+        undoBtn.title = `Undo fill from ${timeAgo}`;
+        return;
+      }
+    } catch (e) {
+      // Tab query failed, hide button
+    }
   }
+  undoBtn.classList.remove("visible");
 }
 
 function getTimeAgo(timestamp) {
@@ -490,7 +514,7 @@ async function undoLastFill() {
     // Clear the undo history after successful restore
     lastFillSession = null;
     await chrome.storage.local.remove(FILL_HISTORY_KEY);
-    updateUndoButton();
+    await updateUndoButton();
 
     setTimeout(() => { status.innerText = ""; }, 2000);
   } catch (err) {
@@ -693,6 +717,22 @@ checkHealth();
 fillBtn.onclick = async () => {
   const status = document.getElementById("status");
 
+  // Check if user is logged in
+  if (!authState.accessToken) {
+    status.innerText = "Please sign in to use Autofill.AI";
+    loginModal.style.display = "block";
+    loginForm.style.display = "block";
+    registerForm.style.display = "none";
+    return;
+  }
+
+  // Check if user has credits
+  if (userCredits <= 0) {
+    status.innerText = "You need credits to use AI autofill";
+    insufficientCreditsNotice.style.display = "block";
+    return;
+  }
+
   try {
     fillBtn.disabled = true;
     fillBtn.innerText = "Analyzing...";
@@ -731,6 +771,7 @@ fillBtn.onclick = async () => {
     const profile = getSelectedProfile();
     const profileModeVal = getProfileMode();
 
+    // Profile-only mode doesn't require AI (no credits needed)
     if (profile && profileModeVal === "only") {
       const values = profileValuesForFields(fields, profile);
       if (Object.keys(values).length === 0) {
@@ -756,9 +797,9 @@ fillBtn.onclick = async () => {
 
     let response;
     try {
-      response = await fetch(`${BACKEND_URL}/api/v1/form/analyze`, {
+      // Use authenticated API request
+      response = await apiRequest("/form/analyze", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           fields,
           context,
@@ -773,11 +814,25 @@ fillBtn.onclick = async () => {
     }
 
     if (!response.ok) {
-      throw new Error(`Server error: ${response.statusText}`);
+      const errorData = await response.json().catch(() => ({}));
+      if (response.status === 402) {
+        // Insufficient credits
+        userCredits = 0;
+        updateCreditsUI();
+        throw new Error("Insufficient credits. Please purchase more.");
+      }
+      throw new Error(errorData.error || `Server error: ${response.statusText}`);
     }
 
     const responseData = await response.json();
     let values = responseData.data || responseData;
+    
+    // Update credits if returned in response
+    if (responseData.creditsRemaining !== undefined) {
+      userCredits = responseData.creditsRemaining;
+      updateCreditsUI();
+    }
+    
     if (profile && profileModeVal === "plus_ai") {
       values = mergeProfileWithAiValues(fields, values, profile);
     }
@@ -795,6 +850,33 @@ async function loadAuthState() {
   const stored = await chrome.storage.local.get(AUTH_STORAGE_KEY);
   if (stored[AUTH_STORAGE_KEY]) {
     authState = stored[AUTH_STORAGE_KEY];
+    
+    // Re-initialize encryption if we have the key stored
+    if (authState.encryptionKey) {
+      try {
+        await window.CryptoUtils.initializeEncryption(authState.encryptionKey);
+      } catch (err) {
+        console.error("Failed to initialize encryption:", err);
+      }
+    }
+    
+    // Refresh user data from server to get latest verification status
+    if (authState.accessToken) {
+      try {
+        const response = await fetch(`${BACKEND_URL}/api/v1/auth/me`, {
+          headers: { "Authorization": `Bearer ${authState.accessToken}` }
+        });
+        if (response.ok) {
+          const data = await response.json();
+          if (data.data?.user) {
+            authState.user = data.data.user;
+            await saveAuthState();
+          }
+        }
+      } catch (err) {
+        // Silently fail - use cached data
+      }
+    }
   }
   updateAuthUI();
 }
@@ -808,6 +890,32 @@ function updateAuthUI() {
     loggedOutView.style.display = "none";
     loggedInView.style.display = "block";
     userEmailEl.textContent = authState.user.email;
+    
+    // Hide login notice
+    loginRequiredNotice.style.display = "none";
+    
+    // Check if email is verified
+    if (!authState.user.isEmailVerified) {
+      // Email not verified - show verification notice and disable features
+      emailVerificationNotice.style.display = "block";
+      creditsDisplay.style.display = "none";
+      insufficientCreditsNotice.style.display = "none";
+      
+      fillBtn.disabled = true;
+      actionZone.style.opacity = "0.6";
+      actionZone.style.pointerEvents = "none";
+      syncProfilesBtn.style.display = "none";
+      return;
+    }
+    
+    // Email is verified - show credits display
+    emailVerificationNotice.style.display = "none";
+    creditsDisplay.style.display = "block";
+    
+    // Enable main action buttons
+    fillBtn.disabled = false;
+    actionZone.style.opacity = "1";
+    actionZone.style.pointerEvents = "auto";
 
     // Only show sync button if encryption is initialized
     if (window.CryptoUtils.isEncryptionInitialized()) {
@@ -817,11 +925,73 @@ function updateAuthUI() {
       syncProfilesBtn.style.display = "none";
       syncStatusEl.textContent = "Log in again to sync";
     }
+    
+    // Fetch credits
+    fetchCredits();
   } else {
     loggedOutView.style.display = "block";
     loggedInView.style.display = "none";
     syncProfilesBtn.style.display = "none";
+    
+    // Hide credits display and show login notice
+    creditsDisplay.style.display = "none";
+    loginRequiredNotice.style.display = "block";
+    emailVerificationNotice.style.display = "none";
+    insufficientCreditsNotice.style.display = "none";
+    
+    // Disable main action buttons
+    fillBtn.disabled = true;
+    actionZone.style.opacity = "0.6";
+    actionZone.style.pointerEvents = "none";
   }
+}
+
+async function fetchCredits() {
+  if (!authState.accessToken) return;
+  
+  try {
+    const response = await apiRequest("/payment/credits");
+    if (response.ok) {
+      const data = await response.json();
+      userCredits = data.data?.credits || 0;
+      updateCreditsUI();
+      
+      // Cache credits
+      await chrome.storage.local.set({ 
+        [CREDITS_CACHE_KEY]: { 
+          credits: userCredits, 
+          timestamp: Date.now() 
+        } 
+      });
+    }
+  } catch (err) {
+    // Try to load from cache
+    const cached = await chrome.storage.local.get(CREDITS_CACHE_KEY);
+    if (cached[CREDITS_CACHE_KEY]) {
+      userCredits = cached[CREDITS_CACHE_KEY].credits;
+      updateCreditsUI();
+    }
+  }
+}
+
+function updateCreditsUI() {
+  creditsAmount.textContent = userCredits.toLocaleString();
+  
+  if (userCredits <= 0) {
+    insufficientCreditsNotice.style.display = "block";
+    fillBtn.disabled = true;
+  } else {
+    insufficientCreditsNotice.style.display = "none";
+    fillBtn.disabled = false;
+  }
+}
+
+function openBillingPage() {
+  chrome.tabs.create({ url: `${FRONTEND_URL}/dashboard/billing` });
+}
+
+function openDashboard() {
+  chrome.tabs.create({ url: `${FRONTEND_URL}/dashboard` });
 }
 
 async function apiRequest(endpoint, options = {}) {
@@ -866,13 +1036,14 @@ async function refreshToken() {
       const data = await response.json();
       authState.accessToken = data.data.accessToken;
       authState.user = data.data.user;
+      // Preserve existing encryption key (refresh doesn't return a new one)
       await saveAuthState();
       return true;
     }
   } catch (err) {
   }
 
-  authState = { accessToken: null, user: null };
+  authState = { accessToken: null, user: null, encryptionKey: null };
   await saveAuthState();
   updateAuthUI();
 
@@ -898,6 +1069,7 @@ async function login(email, password) {
 
   authState.accessToken = data.data.accessToken;
   authState.user = data.data.user;
+  authState.encryptionKey = data.data.encryptionKey || null;
   await saveAuthState();
 
   // Initialize encryption with server-provided key
@@ -929,6 +1101,7 @@ async function register(email, password, name) {
 
   authState.accessToken = data.data.accessToken;
   authState.user = data.data.user;
+  authState.encryptionKey = data.data.encryptionKey || null;
   await saveAuthState();
 
   // Initialize encryption with server-provided key
@@ -950,7 +1123,7 @@ async function logout() {
   // Clear encryption state
   window.CryptoUtils.clearEncryption();
 
-  authState = { accessToken: null, user: null };
+  authState = { accessToken: null, user: null, encryptionKey: null };
   await saveAuthState();
   updateAuthUI();
 }
@@ -1124,6 +1297,64 @@ registerForm.addEventListener("submit", async (e) => {
 
 logoutBtn.addEventListener("click", async () => {
   await logout();
+});
+
+// Credits and billing event listeners
+buyCreditsLink.addEventListener("click", (e) => {
+  e.preventDefault();
+  openBillingPage();
+});
+
+buyCreditsBtn.addEventListener("click", () => {
+  openBillingPage();
+});
+
+loginRequiredBtn.addEventListener("click", () => {
+  loginModal.style.display = "block";
+  loginForm.style.display = "block";
+  registerForm.style.display = "none";
+});
+
+resendVerificationBtn.addEventListener("click", async () => {
+  if (!authState.user?.email) return;
+  
+  resendVerificationBtn.disabled = true;
+  resendVerificationBtn.textContent = "Sending...";
+  
+  try {
+    const response = await fetch(`${BACKEND_URL}/api/v1/auth/resend-verification`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: authState.user.email })
+    });
+    
+    const data = await response.json();
+    
+    if (response.ok) {
+      resendVerificationBtn.textContent = "Email Sent!";
+      setTimeout(() => {
+        resendVerificationBtn.textContent = "Resend Verification Email";
+        resendVerificationBtn.disabled = false;
+      }, 3000);
+    } else {
+      resendVerificationBtn.textContent = data.error || "Failed to send";
+      setTimeout(() => {
+        resendVerificationBtn.textContent = "Resend Verification Email";
+        resendVerificationBtn.disabled = false;
+      }, 3000);
+    }
+  } catch (err) {
+    resendVerificationBtn.textContent = "Failed to send";
+    setTimeout(() => {
+      resendVerificationBtn.textContent = "Resend Verification Email";
+      resendVerificationBtn.disabled = false;
+    }, 3000);
+  }
+});
+
+dashboardLink.addEventListener("click", (e) => {
+  e.preventDefault();
+  openDashboard();
 });
 
 syncProfilesBtn.addEventListener("click", async () => {
@@ -1553,6 +1784,22 @@ function arrayBufferToBase64(buffer) {
 async function handleCVUpload(file) {
   if (!file) return;
 
+  // Check if user is logged in
+  if (!authState.accessToken) {
+    cvStatus.textContent = "Please sign in first";
+    loginModal.style.display = "block";
+    loginForm.style.display = "block";
+    registerForm.style.display = "none";
+    return;
+  }
+
+  // Check if user has credits
+  if (userCredits <= 0) {
+    cvStatus.textContent = "Insufficient credits";
+    insufficientCreditsNotice.style.display = "block";
+    return;
+  }
+
   cvStatus.textContent = "Parsing...";
   cvUploadArea.style.opacity = "0.5";
   cvUploadArea.style.pointerEvents = "none";
@@ -1589,20 +1836,30 @@ async function handleCVUpload(file) {
       };
     }
 
-    // Send to backend for AI parsing
-    const response = await fetch(`${BACKEND_URL}/api/v1/form/parse-cv`, {
+    // Send to backend for AI parsing (authenticated)
+    const response = await apiRequest("/form/parse-cv", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(requestBody)
     });
 
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
+      if (response.status === 402) {
+        userCredits = 0;
+        updateCreditsUI();
+        throw new Error("Insufficient credits. Please purchase more.");
+      }
       throw new Error(data.error || data.message || `Server error: ${response.status}`);
     }
 
     const data = await response.json();
     const parsed = data.data || data;
+    
+    // Update credits if returned in response
+    if (data.creditsRemaining !== undefined) {
+      userCredits = data.creditsRemaining;
+      updateCreditsUI();
+    }
 
     // Create profile directly from parsed CV
     const profileData = flattenCVToProfile(parsed);

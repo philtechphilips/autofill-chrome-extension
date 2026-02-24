@@ -1,7 +1,90 @@
 const BACKEND_URL = "http://localhost:9000";
+const FRONTEND_URL = "https://autofill.live";
 const AUTH_STORAGE_KEY = "autofill_auth";
 const STORAGE_KEY = "autofill_profiles";
 const FILL_HISTORY_KEY = "autofill_fill_history";
+const CREDITS_CACHE_KEY = "autofill_credits_cache";
+
+// Get auth state from storage
+async function getAuthState() {
+  const stored = await chrome.storage.local.get(AUTH_STORAGE_KEY);
+  return stored[AUTH_STORAGE_KEY] || { accessToken: null, user: null, encryptionKey: null };
+}
+
+// Make authenticated API request
+async function authenticatedFetch(endpoint, options = {}) {
+  const authState = await getAuthState();
+  
+  const headers = {
+    "Content-Type": "application/json",
+    ...options.headers
+  };
+  
+  if (authState.accessToken) {
+    headers["Authorization"] = `Bearer ${authState.accessToken}`;
+  }
+  
+  const response = await fetch(`${BACKEND_URL}/api/v1${endpoint}`, {
+    ...options,
+    headers,
+    credentials: "include"
+  });
+  
+  // If unauthorized, try to refresh token
+  if (response.status === 401 && authState.accessToken) {
+    const refreshed = await refreshToken();
+    if (refreshed) {
+      const newAuthState = await getAuthState();
+      headers["Authorization"] = `Bearer ${newAuthState.accessToken}`;
+      return fetch(`${BACKEND_URL}/api/v1${endpoint}`, {
+        ...options,
+        headers,
+        credentials: "include"
+      });
+    }
+  }
+  
+  return response;
+}
+
+// Refresh access token
+async function refreshToken() {
+  try {
+    const response = await fetch(`${BACKEND_URL}/api/v1/auth/refresh`, {
+      method: "POST",
+      credentials: "include"
+    });
+    
+    if (response.ok) {
+      const data = await response.json();
+      // Get existing auth state to preserve encryption key
+      const existingAuth = await getAuthState();
+      const authState = {
+        accessToken: data.data.accessToken,
+        user: data.data.user,
+        encryptionKey: existingAuth.encryptionKey || null
+      };
+      await chrome.storage.local.set({ [AUTH_STORAGE_KEY]: authState });
+      return true;
+    }
+  } catch (err) {
+    console.error("[Background] Token refresh failed:", err);
+  }
+  
+  // Clear auth state on refresh failure
+  await chrome.storage.local.set({ [AUTH_STORAGE_KEY]: { accessToken: null, user: null, encryptionKey: null } });
+  return false;
+}
+
+// Update cached credits
+async function updateCachedCredits(credits) {
+  await chrome.storage.local.set({
+    [CREDITS_CACHE_KEY]: {
+      credits,
+      timestamp: Date.now()
+    }
+  });
+}
 
 // Track analytics events (non-blocking)
 async function trackEvent(eventData) {
@@ -37,6 +120,21 @@ async function executeAutofillFromShortcut() {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab) {
+      return;
+    }
+
+    // Check if user is logged in
+    const authState = await getAuthState();
+    if (!authState.accessToken) {
+      await showNotification(tab.id, "Please sign in to use Autofill.AI. Click the extension icon.", "warning");
+      return;
+    }
+
+    // Check cached credits
+    const cachedCredits = await chrome.storage.local.get(CREDITS_CACHE_KEY);
+    const credits = cachedCredits[CREDITS_CACHE_KEY]?.credits || 0;
+    if (credits <= 0) {
+      await showNotification(tab.id, "Insufficient credits. Visit autofill.live to purchase more.", "warning");
       return;
     }
 
@@ -79,7 +177,7 @@ async function executeAutofillFromShortcut() {
       profile = profiles.find(p => p.id === selectedProfileId);
     }
 
-    // If profile only mode and we have a profile, use profile values directly
+    // If profile only mode and we have a profile, use profile values directly (no credits needed)
     if (profile && profileMode === "only") {
       const values = profileValuesForFields(fields, profile);
       if (Object.keys(values).length === 0) {
@@ -90,10 +188,9 @@ async function executeAutofillFromShortcut() {
       return;
     }
 
-    // Call AI to generate values
-    const response = await fetch(`${BACKEND_URL}/api/v1/form/analyze`, {
+    // Call AI to generate values (authenticated)
+    const response = await authenticatedFetch("/form/analyze", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         fields,
         context,
@@ -105,12 +202,26 @@ async function executeAutofillFromShortcut() {
     });
 
     if (!response.ok) {
-      await showNotification(tab.id, "Server error. Is backend running?", "error");
+      if (response.status === 402) {
+        await updateCachedCredits(0);
+        await showNotification(tab.id, "Insufficient credits. Visit autofill.live to purchase more.", "warning");
+        return;
+      }
+      if (response.status === 401) {
+        await showNotification(tab.id, "Session expired. Please sign in again via the extension.", "warning");
+        return;
+      }
+      await showNotification(tab.id, "Server error. Please try again.", "error");
       return;
     }
 
     const responseData = await response.json();
     let values = responseData.data || responseData;
+
+    // Update cached credits if returned
+    if (responseData.creditsRemaining !== undefined) {
+      await updateCachedCredits(responseData.creditsRemaining);
+    }
 
     // Merge with profile if needed
     if (profile && profileMode === "plus_ai") {
@@ -351,6 +462,17 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true; // Keep channel open for async response
   }
   
+  if (request.type === "GENERATE_TEXT") {
+    handleGenerateText(request.data, sender.tab)
+      .then(result => {
+        sendResponse(result);
+      })
+      .catch(err => {
+        sendResponse({ error: err.message || "Generation failed" });
+      });
+    return true; // Keep channel open for async response
+  }
+  
   // Handle ping to check if background is alive
   if (request.type === "PING") {
     sendResponse({ pong: true });
@@ -359,11 +481,22 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 });
 
 async function handleEnhanceText({ text, fieldLabel, context, enhanceType }, tab) {
+  // Check if user is logged in
+  const authState = await getAuthState();
+  if (!authState.accessToken) {
+    throw new Error("Please sign in to use AI text enhancement. Click the extension icon.");
+  }
+
+  // Check cached credits
+  const cachedCredits = await chrome.storage.local.get(CREDITS_CACHE_KEY);
+  const credits = cachedCredits[CREDITS_CACHE_KEY]?.credits || 0;
+  if (credits <= 0) {
+    throw new Error("Insufficient credits. Visit autofill.live to purchase more.");
+  }
   
   try {
-    const response = await fetch(`${BACKEND_URL}/api/v1/form/enhance`, {
+    const response = await authenticatedFetch("/form/enhance", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         text,
         fieldLabel,
@@ -372,13 +505,24 @@ async function handleEnhanceText({ text, fieldLabel, context, enhanceType }, tab
       })
     });
 
-
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
+      if (response.status === 402) {
+        await updateCachedCredits(0);
+        throw new Error("Insufficient credits. Visit autofill.live to purchase more.");
+      }
+      if (response.status === 401) {
+        throw new Error("Session expired. Please sign in again via the extension.");
+      }
       throw new Error(data.error || `API returned ${response.status}`);
     }
 
     const data = await response.json();
+    
+    // Update cached credits if returned
+    if (data.creditsRemaining !== undefined) {
+      await updateCachedCredits(data.creditsRemaining);
+    }
     
     // Track text enhance event
     let domain = null;
@@ -399,7 +543,6 @@ async function handleEnhanceText({ text, fieldLabel, context, enhanceType }, tab
       enhanced: data.data?.enhanced || data.enhanced
     };
   } catch (err) {
-    
     // Track failed enhance
     trackEvent({
       type: "text_enhance",
@@ -407,7 +550,80 @@ async function handleEnhanceText({ text, fieldLabel, context, enhanceType }, tab
     });
     
     if (err.message === "Failed to fetch") {
-      throw new Error("Cannot connect to backend server. Is it running on localhost:9000?");
+      throw new Error("Cannot connect to server. Please check your internet connection.");
+    }
+    throw err;
+  }
+}
+
+async function handleGenerateText({ fieldLabel, context }, tab) {
+  // Check if user is logged in
+  const authState = await getAuthState();
+  if (!authState.accessToken) {
+    throw new Error("Please sign in to use AI text generation. Click the extension icon.");
+  }
+
+  // Check cached credits
+  const cachedCredits = await chrome.storage.local.get(CREDITS_CACHE_KEY);
+  const credits = cachedCredits[CREDITS_CACHE_KEY]?.credits || 0;
+  if (credits <= 0) {
+    throw new Error("Insufficient credits. Visit autofill.live to purchase more.");
+  }
+  
+  try {
+    const response = await authenticatedFetch("/form/generate", {
+      method: "POST",
+      body: JSON.stringify({
+        fieldLabel,
+        context
+      })
+    });
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      if (response.status === 402) {
+        await updateCachedCredits(0);
+        throw new Error("Insufficient credits. Visit autofill.live to purchase more.");
+      }
+      if (response.status === 401) {
+        throw new Error("Session expired. Please sign in again via the extension.");
+      }
+      throw new Error(data.error || `API returned ${response.status}`);
+    }
+
+    const data = await response.json();
+    
+    // Update cached credits if returned
+    if (data.creditsRemaining !== undefined) {
+      await updateCachedCredits(data.creditsRemaining);
+    }
+    
+    // Track text generate event
+    let domain = null;
+    try {
+      if (tab?.url) domain = new URL(tab.url).hostname;
+    } catch {}
+    
+    trackEvent({
+      type: "text_generate",
+      domain,
+      pageTitle: tab?.title || null,
+      success: true,
+      metadata: { fieldLabel }
+    });
+    
+    return {
+      generated: data.data?.generated || data.generated
+    };
+  } catch (err) {
+    // Track failed generate
+    trackEvent({
+      type: "text_generate",
+      success: false
+    });
+    
+    if (err.message === "Failed to fetch") {
+      throw new Error("Cannot connect to server. Please check your internet connection.");
     }
     throw err;
   }

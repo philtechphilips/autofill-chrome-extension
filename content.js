@@ -2104,16 +2104,14 @@ function showEnhanceButton(textarea) {
   
   currentEnhanceTarget = textarea;
   
-  // Show button - it will indicate if text is too short when clicked
+  // Show button - works for both empty fields (generate) and filled fields (enhance)
   const value = textarea.value || textarea.innerText || '';
+  btn.classList.add('visible');
+  btn.style.opacity = '';
   if (value.trim().length >= 15) {
-    btn.classList.add('visible');
     btn.title = 'Improve this text with AI';
   } else {
-    // Still show but with different state for discoverability
-    btn.classList.add('visible');
-    btn.title = 'Type more text to enable AI improvement';
-    btn.style.opacity = '0.5';
+    btn.title = 'Generate text with AI';
   }
 }
 
@@ -2158,13 +2156,7 @@ async function handleEnhanceClick(e) {
   // IMPORTANT: Store the target immediately before any async operations
   const targetElement = currentEnhanceTarget;
   const text = targetElement.value || targetElement.innerText || '';
-  
-  // Check minimum text length
-  if (text.trim().length < 15) {
-    alert('Please write at least a sentence (15+ characters) before improving with AI.');
-    targetElement.focus();
-    return;
-  }
+  const isEmptyField = text.trim().length < 15;
   
   const btn = enhanceButton;
   const originalHtml = btn.innerHTML;
@@ -2186,6 +2178,7 @@ async function handleEnhanceClick(e) {
     if (!fieldLabel) {
       fieldLabel = targetElement.getAttribute('aria-label') || 
                    targetElement.placeholder || 
+                   targetElement.name ||
                    'Text field';
     }
     
@@ -2194,9 +2187,9 @@ async function handleEnhanceClick(e) {
     try {
       if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
         response = await chrome.runtime.sendMessage({
-          type: 'ENHANCE_TEXT',
+          type: isEmptyField ? 'GENERATE_TEXT' : 'ENHANCE_TEXT',
           data: {
-            text,
+            text: isEmptyField ? '' : text,
             fieldLabel,
             context: document.title,
             enhanceType: 'professional'
@@ -2222,19 +2215,19 @@ async function handleEnhanceClick(e) {
       throw new Error(response.error);
     }
     
-    const enhanced = response.enhanced;
+    const enhanced = response.enhanced || response.generated;
     if (!enhanced) {
-      throw new Error('No enhanced text returned');
+      throw new Error('No text returned');
     }
     
     // Store both the text and target for the modal
     pendingEnhancedText = enhanced;
     pendingEnhanceTarget = targetElement; // Set it here directly!
     
-    showEnhanceModal(text, enhanced);
+    showEnhanceModal(isEmptyField ? '(empty field)' : text, enhanced);
     
   } catch (err) {
-    alert('Failed to enhance text: ' + (err.message || 'Unknown error'));
+    alert('Failed to ' + (isEmptyField ? 'generate' : 'enhance') + ' text: ' + (err.message || 'Unknown error'));
   } finally {
     btn.disabled = false;
     btn.innerHTML = originalHtml;
@@ -2324,17 +2317,15 @@ function initEnhanceListeners() {
     }, 300);
   }, true);
   
-  // Update button opacity based on text length
+  // Update button tooltip based on text length
   document.addEventListener('input', (e) => {
     const el = e.target;
     if (el === currentEnhanceTarget && enhanceButton) {
       const value = el.value || el.innerText || '';
       if (value.trim().length >= 15) {
-        enhanceButton.style.opacity = '';
         enhanceButton.title = 'Improve this text with AI';
       } else {
-        enhanceButton.style.opacity = '0.5';
-        enhanceButton.title = 'Type more text to enable AI improvement';
+        enhanceButton.title = 'Generate text with AI';
       }
     }
   }, true);

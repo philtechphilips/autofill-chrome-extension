@@ -274,9 +274,14 @@
     }
 
     #undo-fill-btn {
+      display: none;
       background: #fef3c7;
       border-color: #f59e0b;
       color: #92400e;
+    }
+
+    #undo-fill-btn.visible {
+      display: flex;
     }
 
     #undo-fill-btn:hover:not(:disabled) {
@@ -533,6 +538,38 @@
     <p>Detect fields and populate forms with precision.</p>
   </div>
 
+  <!-- Credits Display (shown when logged in) -->
+  <div id="credits-display" style="display: none; margin-bottom: 12px; padding: 10px 12px; background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%); border: 1px solid #bbf7d0; border-radius: var(--radius);">
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+      <div>
+        <span style="font-size: 11px; color: #166534; font-weight: 500;">Available Credits</span>
+        <div style="font-size: 18px; font-weight: 600; color: #15803d;" id="credits-amount">--</div>
+      </div>
+      <a href="#" id="buy-credits-link" style="font-size: 11px; color: #166534; text-decoration: underline;">Buy more</a>
+    </div>
+  </div>
+
+  <!-- Login Required Notice -->
+  <div id="login-required-notice" style="display: none; margin-bottom: 12px; padding: 12px; background: #fef2f2; border: 1px solid #fecaca; border-radius: var(--radius);">
+    <div style="font-size: 12px; color: #b91c1c; font-weight: 500; margin-bottom: 6px;">Login Required</div>
+    <p style="font-size: 11px; color: #dc2626; margin: 0 0 8px 0;">Please sign in to use AI autofill.</p>
+    <button type="button" id="login-required-btn" style="height: 32px; font-size: 11px; background: #dc2626; border-color: #dc2626; color: white;">Sign In</button>
+  </div>
+
+  <!-- Email Verification Required Notice -->
+  <div id="email-verification-notice" style="display: none; margin-bottom: 12px; padding: 12px; background: #fef3c7; border: 1px solid #f59e0b; border-radius: var(--radius);">
+    <div style="font-size: 12px; color: #92400e; font-weight: 500; margin-bottom: 6px;">Email Verification Required</div>
+    <p style="font-size: 11px; color: #b45309; margin: 0 0 8px 0;">Please verify your email address to use AI autofill. Check your inbox for a verification link.</p>
+    <button type="button" id="resend-verification-btn" style="height: 32px; font-size: 11px; background: #f59e0b; border-color: #f59e0b; color: white;">Resend Verification Email</button>
+  </div>
+
+  <!-- Insufficient Credits Notice -->
+  <div id="insufficient-credits-notice" style="display: none; margin-bottom: 12px; padding: 12px; background: #fef2f2; border: 1px solid #fecaca; border-radius: var(--radius);">
+    <div style="font-size: 12px; color: #b91c1c; font-weight: 500; margin-bottom: 6px;">Insufficient Credits</div>
+    <p style="font-size: 11px; color: #dc2626; margin: 0 0 8px 0;">You need credits to use AI autofill. Purchase a pack to continue.</p>
+    <button type="button" id="buy-credits-btn" style="height: 32px; font-size: 11px; background: #dc2626; border-color: #dc2626; color: white;">Buy Credits</button>
+  </div>
+
   <div id="backend-off" style="display: none;">Cannot reach server.</div>
 
   <div id="privacy-notice" style="display: none;">
@@ -588,7 +625,7 @@
         </div>
       </div>
       <button id="fill">Execute Autofill</button>
-      <button id="undo-fill-btn" class="secondary" style="display: none; margin-top: 8px;">
+      <button id="undo-fill-btn" class="secondary" style="margin-top: 8px;">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 6px;">
           <path d="M3 10h10a5 5 0 0 1 5 5v2M3 10l4-4M3 10l4 4"/>
         </svg>
@@ -653,13 +690,16 @@
   <!-- Auth Section -->
   <div id="auth-section">
     <div id="logged-out-view">
-      <p style="font-size: 11px; color: var(--accents-4); margin-bottom: 8px;">Sign in to sync profiles across devices</p>
+      <p style="font-size: 11px; color: var(--accents-4); margin-bottom: 8px;">Sign in to use Autofill.AI</p>
       <button type="button" id="login-btn" class="secondary" style="height: 32px; font-size: 11px;">Sign In</button>
     </div>
     <div id="logged-in-view" style="display: none;">
       <div style="display: flex; align-items: center; justify-content: space-between; font-size: 11px;">
         <span id="user-email" style="color: var(--accents-4);"></span>
-        <button type="button" id="logout-btn" class="secondary" style="width: auto; height: 24px; padding: 0 8px; font-size: 10px;">Logout</button>
+        <div style="display: flex; gap: 6px; align-items: center;">
+          <a href="#" id="dashboard-link" style="font-size: 10px; color: var(--accents-4);">Dashboard</a>
+          <button type="button" id="logout-btn" class="secondary" style="width: auto; height: 24px; padding: 0 8px; font-size: 10px;">Logout</button>
+        </div>
       </div>
       <div id="sync-status" style="font-size: 10px; color: var(--accents-3); margin-top: 4px;"></div>
     </div>
