@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Autofill.Ai",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "AI-powered form autofill. Automatically fill forms with intelligent, context-aware data.",
   "permissions": ["activeTab", "scripting", "storage"],
   "host_permissions": ["<all_urls>"],
