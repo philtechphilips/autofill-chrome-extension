@@ -1806,197 +1806,217 @@ function setFieldValue(key, value) {
 // ==================== AI Enhance Floating Button ====================
 
 const AUTOFILL_ENHANCE_STYLES = `
+  /* AutoFill AI on-page UI. Everything is reset first so host-page CSS can't leak in. */
+  .autofill-enhance-btn,
+  .autofill-enhance-btn :where(*:not(svg, svg *)),
+  .autofill-enhance-modal,
+  .autofill-enhance-modal :where(*:not(svg, svg *)),
+  .autofill-enhance-toast,
+  .autofill-enhance-toast :where(*:not(svg, svg *)) {
+    all: unset;
+    box-sizing: border-box;
+  }
+
+  .autofill-enhance-btn,
+  .autofill-enhance-modal,
+  .autofill-enhance-toast {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    color: #0f1b3d;
+    line-height: 1.4;
+  }
+
+  .autofill-enhance-modal svg, .autofill-enhance-btn svg, .autofill-enhance-toast svg { display: block; }
+
+  /* ── Floating button ── */
   .autofill-enhance-btn {
     position: absolute;
     top: 8px;
     right: 8px;
-    z-index: 10000;
-    display: flex;
+    z-index: 2147483000;
+    display: inline-flex;
     align-items: center;
-    justify-content: center;
-    width: 24px;
-    height: 24px;
-    padding: 0;
-    background: none;
-    color: #f59e0b;
-    border: none;
-    outline: none;
-    box-shadow: none;
+    gap: 6px;
+    height: 28px;
+    padding: 0 11px 0 9px;
+    background: #0f1b3d;
+    color: #ffffff;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: -0.005em;
     cursor: pointer;
-    transition: color 0.15s ease, transform 0.15s ease;
+    box-shadow: 0 6px 18px -6px rgba(15, 27, 61, 0.45);
     opacity: 0;
-    transform: scale(0.9);
+    transform: translateY(4px);
     pointer-events: none;
+    transition: opacity 0.25s cubic-bezier(0.22, 1, 0.36, 1), transform 0.25s cubic-bezier(0.22, 1, 0.36, 1), background-color 0.2s;
   }
-  
-  .autofill-enhance-btn.visible {
-    opacity: 1;
-    transform: scale(1);
-    pointer-events: auto;
-  }
-  
-  .autofill-enhance-btn:hover {
-    color: #d97706;
-    transform: scale(1.1);
-  }
-  
-  .autofill-enhance-btn:active {
-    transform: scale(0.95);
-  }
-  
-  .autofill-enhance-btn:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-  }
-  
-  .autofill-enhance-btn svg {
-    width: 18px;
-    height: 18px;
-  }
-  
-  .autofill-enhance-wrapper {
-    position: relative;
-    display: inline-block;
-  }
-  
-  @keyframes autofill-spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
-  }
-  
-  .autofill-enhance-btn .spinner {
-    animation: autofill-spin 1s linear infinite;
-  }
-  
-  /* Preview Modal */
+  .autofill-enhance-btn.visible { opacity: 1; transform: none; pointer-events: auto; }
+  .autofill-enhance-btn:hover { background: #1c2c5c; }
+  .autofill-enhance-btn:active { transform: scale(0.97); }
+  .autofill-enhance-btn:focus-visible { outline: 2px solid #c9d3f8; outline-offset: 2px; }
+  .autofill-enhance-btn:disabled { cursor: progress; opacity: 1; }
+  .autofill-enhance-btn svg { width: 14px; height: 14px; color: #c9d3f8; }
+  .autofill-enhance-label { display: inline; color: #ffffff; }
+
+  @keyframes autofill-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+  .autofill-enhance-btn .spinner { animation: autofill-spin 0.9s linear infinite; }
+
+  /* ── Modal ── */
   .autofill-enhance-modal {
     position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.5);
-    z-index: 100000;
+    inset: 0;
+    z-index: 2147483001;
     display: flex;
     align-items: center;
     justify-content: center;
+    padding: 16px;
+    background: rgba(15, 27, 61, 0.38);
+    -webkit-backdrop-filter: blur(3px);
+    backdrop-filter: blur(3px);
     opacity: 0;
     visibility: hidden;
-    transition: all 0.2s ease;
+    transition: opacity 0.25s ease, visibility 0.25s ease;
   }
-  
-  .autofill-enhance-modal.visible {
-    opacity: 1;
-    visibility: visible;
-  }
-  
+  .autofill-enhance-modal.visible { opacity: 1; visibility: visible; }
+
   .autofill-enhance-modal-content {
-    background: white;
-    border-radius: 12px;
-    width: 90%;
-    max-width: 500px;
-    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    max-width: 540px;
+    max-height: 84vh;
     overflow: hidden;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-    transform: scale(0.95);
-    transition: transform 0.2s ease;
+    background: #fbfaf7;
+    border-radius: 18px;
+    box-shadow: 0 40px 80px -30px rgba(15, 27, 61, 0.45);
+    transform: translateY(12px) scale(0.98);
+    transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1);
   }
-  
-  .autofill-enhance-modal.visible .autofill-enhance-modal-content {
-    transform: scale(1);
-  }
-  
+  .autofill-enhance-modal.visible .autofill-enhance-modal-content { transform: none; }
+
   .autofill-enhance-modal-header {
-    padding: 16px 20px;
-    border-bottom: 1px solid #eaeaea;
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 12px;
+    padding: 20px 22px 6px;
   }
-  
   .autofill-enhance-modal-header h3 {
-    margin: 0;
-    font-size: 14px;
-    font-weight: 600;
-    color: #000;
+    display: block;
+    font-family: "Newsreader", "Iowan Old Style", Georgia, serif;
+    font-size: 26px;
+    font-weight: 300;
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+    color: #0f1b3d;
   }
-  
-  .autofill-enhance-modal-header svg {
-    color: #8b5cf6;
-  }
-  
+  .autofill-enhance-modal-sub { display: block; padding: 0 22px 16px; font-size: 13px; color: #3b4668; }
+
   .autofill-enhance-modal-body {
-    padding: 20px;
-    max-height: 50vh;
+    display: block;
+    padding: 0 22px;
     overflow-y: auto;
   }
-  
-  .autofill-enhance-section {
-    margin-bottom: 16px;
-  }
-  
-  .autofill-enhance-section:last-child {
-    margin-bottom: 0;
-  }
-  
+  .autofill-enhance-section { display: block; margin-bottom: 12px; }
   .autofill-enhance-section-label {
-    font-size: 11px;
-    font-weight: 600;
-    color: #666;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    margin-bottom: 8px;
+    display: block;
+    margin-bottom: 6px;
+    font-size: 12px;
+    color: #3b4668;
   }
-  
   .autofill-enhance-section-text {
-    background: #fafafa;
-    border: 1px solid #eaeaea;
-    border-radius: 8px;
-    padding: 12px;
-    font-size: 13px;
-    line-height: 1.5;
-    color: #333;
+    display: block;
+    max-height: 30vh;
+    overflow-y: auto;
+    padding: 12px 14px;
+    border-radius: 12px;
+    background: #ffffff;
+    box-shadow: inset 0 0 0 1px #e8e5de;
+    font-size: 13.5px;
+    line-height: 1.55;
+    color: #3b4668;
     white-space: pre-wrap;
     word-break: break-word;
   }
-  
   .autofill-enhance-section-text.improved {
-    background: #f0fdf4;
-    border-color: #bbf7d0;
+    background: #eceffc;
+    box-shadow: none;
+    color: #0f1b3d;
   }
-  
+
   .autofill-enhance-modal-footer {
-    padding: 16px 20px;
-    border-top: 1px solid #eaeaea;
     display: flex;
-    gap: 8px;
     justify-content: flex-end;
+    gap: 8px;
+    padding: 16px 22px 20px;
   }
-  
   .autofill-enhance-modal-btn {
-    padding: 8px 16px;
-    border-radius: 6px;
-    font-size: 13px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 40px;
+    padding: 0 16px;
+    border-radius: 10px;
+    font-size: 13.5px;
     font-weight: 500;
     cursor: pointer;
-    transition: all 0.15s ease;
-    border: 1px solid #eaeaea;
-    background: white;
-    color: #333;
+    background: #ffffff;
+    color: #0f1b3d;
+    box-shadow: inset 0 0 0 1px #e8e5de;
+    transition: background-color 0.2s, box-shadow 0.2s;
   }
-  
-  .autofill-enhance-modal-btn:hover {
-    background: #fafafa;
+  .autofill-enhance-modal-btn:hover { box-shadow: inset 0 0 0 1px #d3cfc5; }
+  .autofill-enhance-modal-btn:focus-visible { outline: 2px solid #0f1b3d; outline-offset: 2px; }
+  .autofill-enhance-modal-btn.primary { background: #0f1b3d; color: #ffffff; box-shadow: none; }
+  .autofill-enhance-modal-btn.primary:hover { background: #1c2c5c; }
+
+  /* ── Toast (replaces alert()) ── */
+  .autofill-enhance-toast {
+    position: fixed;
+    right: 20px;
+    bottom: 20px;
+    z-index: 2147483002;
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    max-width: 360px;
+    padding: 12px 14px;
+    border-radius: 12px;
+    background: #0f1b3d;
+    color: #ffffff;
+    font-size: 13px;
+    box-shadow: 0 20px 40px -16px rgba(15, 27, 61, 0.5);
+    opacity: 0;
+    transform: translateY(8px);
+    transition: opacity 0.25s ease, transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
   }
-  
-  .autofill-enhance-modal-btn.primary {
-    background: #000;
-    color: white;
-    border-color: #000;
+  .autofill-enhance-toast.visible { opacity: 1; transform: none; }
+  .autofill-enhance-toast span { display: block; color: #ffffff; line-height: 1.45; }
+
+  /* Hold our look even when a site styles buttons/svgs with !important */
+  .autofill-enhance-btn {
+    background: #0f1b3d !important; color: #ffffff !important; border: 0 !important;
+    height: 28px !important; padding: 0 11px 0 9px !important; margin: 0 !important;
+    font-size: 12px !important; border-radius: 8px !important;
+    box-shadow: 0 6px 18px -6px rgba(15, 27, 61, 0.45) !important;
   }
-  
-  .autofill-enhance-modal-btn.primary:hover {
-    background: #333;
+  .autofill-enhance-btn:hover { background: #1c2c5c !important; }
+  .autofill-enhance-btn svg { width: 14px !important; height: 14px !important; flex-shrink: 0; }
+  .autofill-enhance-modal-header svg { width: 30px !important; height: 30px !important; flex-shrink: 0; }
+  .autofill-enhance-modal-btn {
+    background: #ffffff !important; color: #0f1b3d !important; border: 0 !important;
+    height: 40px !important; padding: 0 16px !important; margin: 0 !important;
+    font-size: 13.5px !important; border-radius: 10px !important;
+    box-shadow: inset 0 0 0 1px #e8e5de !important;
+  }
+  .autofill-enhance-modal-btn:hover { box-shadow: inset 0 0 0 1px #d3cfc5 !important; }
+  .autofill-enhance-modal-btn.primary { background: #0f1b3d !important; color: #ffffff !important; box-shadow: none !important; }
+  .autofill-enhance-modal-btn.primary:hover { background: #1c2c5c !important; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .autofill-enhance-btn, .autofill-enhance-modal, .autofill-enhance-modal-content, .autofill-enhance-toast { transition: none; }
+    .autofill-enhance-btn .spinner { animation: none; }
   }
 `;
 
@@ -2021,11 +2041,8 @@ function createEnhanceButton() {
   const btn = document.createElement('button');
   btn.className = 'autofill-enhance-btn';
   btn.title = 'Improve with AI';
-  btn.innerHTML = `
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-      <path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3z"/>
-    </svg>
-  `;
+  btn.type = 'button';
+  btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3l1.6 4.4L18 9l-4.4 1.6L12 15l-1.6-4.4L6 9l4.4-1.6L12 3z"/><path d="M19 15l.7 1.8L21.5 17.5l-1.8.7L19 20l-.7-1.8-1.8-.7 1.8-.7L19 15z"/></svg><span class="autofill-enhance-label">Improve</span>`;
   btn.addEventListener('click', handleEnhanceClick);
   document.body.appendChild(btn);
   enhanceButton = btn;
@@ -2037,30 +2054,45 @@ function createEnhanceModal() {
   
   const modal = document.createElement('div');
   modal.className = 'autofill-enhance-modal';
+  modal.setAttribute('role', 'dialog');
+  modal.setAttribute('aria-modal', 'true');
+  modal.setAttribute('aria-label', 'Improve with AI');
   modal.innerHTML = `
     <div class="autofill-enhance-modal-content">
       <div class="autofill-enhance-modal-header">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3z"/>
+        <svg width="30" height="30" viewBox="0 0 32 32" aria-hidden="true">
+          <rect width="32" height="32" rx="9" fill="#0f1b3d"/>
+          <rect x="7.5" y="8.5" width="17" height="3.2" rx="1.6" fill="#fff"/>
+          <rect x="7.5" y="14.4" width="12.5" height="3.2" rx="1.6" fill="#fff"/>
+          <rect x="7.5" y="20.3" width="6.5" height="3.2" rx="1.6" fill="#c9d3f8"/>
+          <rect x="16" y="19.1" width="1.8" height="5.6" rx="0.9" fill="#c9d3f8"/>
         </svg>
-        <h3>AI Text Enhancement</h3>
+        <h3>Improve with AI</h3>
       </div>
+      <div class="autofill-enhance-modal-sub">Review the suggestion, then replace your text or keep the original.</div>
       <div class="autofill-enhance-modal-body">
         <div class="autofill-enhance-section">
-          <div class="autofill-enhance-section-label">Original</div>
+          <div class="autofill-enhance-section-label">Your text</div>
           <div class="autofill-enhance-section-text" id="autofill-original-text"></div>
         </div>
         <div class="autofill-enhance-section">
-          <div class="autofill-enhance-section-label">Improved</div>
+          <div class="autofill-enhance-section-label">Suggested</div>
           <div class="autofill-enhance-section-text improved" id="autofill-improved-text"></div>
         </div>
       </div>
       <div class="autofill-enhance-modal-footer">
-        <button type="button" class="autofill-enhance-modal-btn" id="autofill-enhance-cancel">Cancel</button>
-        <button type="button" class="autofill-enhance-modal-btn primary" id="autofill-enhance-replace">Replace</button>
+        <button type="button" class="autofill-enhance-modal-btn" id="autofill-enhance-cancel">Keep original</button>
+        <button type="button" class="autofill-enhance-modal-btn primary" id="autofill-enhance-replace">Replace text</button>
       </div>
     </div>
   `;
+
+  // Escape closes the dialog
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && modal.classList.contains('visible')) {
+      hideEnhanceModal(true);
+    }
+  });
   
   // Backdrop click to close
   modal.addEventListener('click', (e) => {
@@ -2108,10 +2140,13 @@ function showEnhanceButton(textarea) {
   const value = textarea.value || textarea.innerText || '';
   btn.classList.add('visible');
   btn.style.opacity = '';
+  const label = btn.querySelector('.autofill-enhance-label');
   if (value.trim().length >= 15) {
     btn.title = 'Improve this text with AI';
+    if (label) label.textContent = 'Improve';
   } else {
     btn.title = 'Generate text with AI';
+    if (label) label.textContent = 'Write';
   }
 }
 
@@ -2131,8 +2166,12 @@ function showEnhanceModal(original, improved) {
   
   modal.querySelector('#autofill-original-text').textContent = original;
   modal.querySelector('#autofill-improved-text').textContent = improved;
+  const isDraft = original === '(empty field)';
+  modal.querySelector('h3').textContent = isDraft ? 'Write with AI' : 'Improve with AI';
+  modal.querySelector('#autofill-enhance-replace').textContent = isDraft ? 'Use this text' : 'Replace text';
   
   modal.classList.add('visible');
+  setTimeout(() => modal.querySelector('#autofill-enhance-replace')?.focus(), 50);
 }
 
 function hideEnhanceModal(clearPending = false) {
@@ -2146,6 +2185,23 @@ function hideEnhanceModal(clearPending = false) {
 }
 
 let pendingEnhancedText = '';
+let enhanceToastTimer = null;
+
+function showEnhanceToast(message) {
+  injectEnhanceStyles();
+  let toast = document.querySelector('.autofill-enhance-toast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.className = 'autofill-enhance-toast';
+    toast.setAttribute('role', 'status');
+    toast.innerHTML = '<span></span>';
+    document.body.appendChild(toast);
+  }
+  toast.querySelector('span').textContent = message;
+  requestAnimationFrame(() => toast.classList.add('visible'));
+  clearTimeout(enhanceToastTimer);
+  enhanceToastTimer = setTimeout(() => toast.classList.remove('visible'), 5000);
+}
 
 async function handleEnhanceClick(e) {
   e.preventDefault();
@@ -2163,11 +2219,7 @@ async function handleEnhanceClick(e) {
   
   try {
     btn.disabled = true;
-    btn.innerHTML = `
-      <svg class="spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <circle cx="12" cy="12" r="10" stroke-dasharray="32" stroke-dashoffset="12"/>
-      </svg>
-    `;
+    btn.innerHTML = `<svg class="spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.2-8.6"/></svg><span class="autofill-enhance-label">${isEmptyField ? 'Writing…' : 'Improving…'}</span>`;
     
     // Get field label for context
     let fieldLabel = '';
@@ -2227,7 +2279,7 @@ async function handleEnhanceClick(e) {
     showEnhanceModal(isEmptyField ? '(empty field)' : text, enhanced);
     
   } catch (err) {
-    alert('Failed to ' + (isEmptyField ? 'generate' : 'enhance') + ' text: ' + (err.message || 'Unknown error'));
+    showEnhanceToast((isEmptyField ? "Couldn't write text: " : "Couldn't improve text: ") + (err.message || 'Unknown error'));
   } finally {
     btn.disabled = false;
     btn.innerHTML = originalHtml;
@@ -2237,13 +2289,13 @@ async function handleEnhanceClick(e) {
 function applyEnhancedText() {
   
   if (!pendingEnhanceTarget) {
-    alert('Error: Lost reference to text field. Please try again.');
+    showEnhanceToast('Lost track of the text field. Please try again.');
     hideEnhanceModal(true);
     return;
   }
   
   if (!pendingEnhancedText) {
-    alert('Error: No enhanced text available. Please try again.');
+    showEnhanceToast('No suggested text available. Please try again.');
     hideEnhanceModal(true);
     return;
   }
@@ -2279,7 +2331,7 @@ function applyEnhancedText() {
     pendingEnhanceTarget = null;
     
   } catch (err) {
-    alert('Error applying text: ' + err.message);
+    showEnhanceToast("Couldn't apply the text: " + err.message);
   }
 }
 
