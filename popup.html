@@ -1,873 +1,594 @@
 <!DOCTYPE html>
 <html>
 <head>
+  <meta charset="utf-8">
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500&family=Geist:wght@400;600&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Newsreader:opsz,wght@6..72,300;6..72,400&display=swap');
 
+    /* ── AutoFill AI design tokens (mirrors the website) ── */
     :root {
-      --bg: #ffffff;
-      --fg: #000000;
-      --accents-1: #fafafa;
-      --accents-2: #eaeaea;
-      --accents-3: #999999;
-      --accents-4: #666666;
-      --selection: #0070f3;
-      --radius: 6px;
+      --paper: #fbfaf7;
+      --paper-deep: #f2f0ea;
+      --card: #ffffff;
+      --line: #e8e5de;
+      --line-strong: #d3cfc5;
+      --ink: #0f1b3d;
+      --ink-hover: #1c2c5c;
+      --ink-soft: #3b4668;
+      --ink-mute: #646c8a;
+      --tile-1: #c9d3f8;
+      --tile-2: #dde3fa;
+      --tile-3: #eceffc;
+      --warm: #f4dcc8;
+      --warm-soft: #f9ece1;
+      --danger: #b42318;
+      --danger-soft: #fdecea;
+      --success: #11603b;
+      --radius: 10px;
+      --ease: cubic-bezier(0.22, 1, 0.36, 1);
+
+      /* Legacy names still referenced by popup.js */
+      --bg: var(--card);
+      --fg: var(--ink);
+      --accents-1: var(--tile-3);
+      --accents-2: var(--line);
+      --accents-3: var(--ink-mute);
+      --accents-4: var(--ink-soft);
     }
 
-    @keyframes spin {
-      from { transform: rotate(0deg); }
-      to { transform: rotate(360deg); }
-    }
-
-    #cv-upload-area:hover {
-      border-color: var(--fg);
-      background: var(--accents-1);
-    }
-
-    #cv-parsed-info {
-      animation: fadeIn 0.2s ease;
-    }
-
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(-4px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-
-    * {
-      box-sizing: border-box;
-      -webkit-font-smoothing: antialiased;
-    }
+    * { box-sizing: border-box; -webkit-font-smoothing: antialiased; }
 
     body {
-      width: 280px;
+      width: 340px;
       margin: 0;
-      padding: 24px;
-      font-family: 'Geist', -apple-system, sans-serif;
-      background: var(--bg);
-      color: var(--fg);
-    }
-
-    .header {
-      margin-bottom: 24px;
-    }
-
-    .brand {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-bottom: 8px;
-    }
-
-    .dot {
-      width: 8px;
-      height: 8px;
-      background: var(--fg);
-      border-radius: 50%;
-    }
-
-    h1 {
-      font-size: 14px;
-      font-weight: 600;
-      margin: 0;
-      letter-spacing: -0.02em;
-      text-transform: uppercase;
-    }
-
-    p {
-      color: var(--accents-4);
+      padding: 16px;
+      font-family: 'Geist', -apple-system, BlinkMacSystemFont, sans-serif;
       font-size: 13px;
-      line-height: 1.5;
-      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
     }
 
-    .action-zone {
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
+    @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+    @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    @keyframes caret { 0%, 45% { opacity: 1; } 55%, 100% { opacity: 0; } }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+
+    body > * { animation: rise 0.45s var(--ease) both; }
+    body > *:nth-child(2) { animation-delay: 0.03s; }
+    body > *:nth-child(3) { animation-delay: 0.06s; }
+    body > *:nth-child(4) { animation-delay: 0.09s; }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation: none !important; transition: none !important; }
     }
 
+    p { margin: 0; color: var(--ink-soft); font-size: 12.5px; line-height: 1.5; }
+    a { color: var(--ink); }
+    .serif { font-family: 'Newsreader', Georgia, serif; font-weight: 300; letter-spacing: -0.02em; }
+
+    /* ── Header ── */
+    .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+    .brand { display: flex; align-items: center; gap: 9px; }
+    .brand h1 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -0.03em; }
+    .brand .caret { animation: caret 1.1s steps(1, end) infinite; }
+    .header-tag {
+      font-size: 11px; color: var(--ink); background: var(--tile-2);
+      padding: 3px 8px; border-radius: 6px;
+    }
+
+    /* ── Tiles ── */
+    .tile { border-radius: 14px; padding: 14px; margin-bottom: 10px; }
+    .tile-title { font-size: 13px; font-weight: 500; margin-bottom: 4px; color: var(--ink); }
+    .tile p { margin-bottom: 10px; }
+    .tile-1 { background: var(--tile-1); }
+    .tile-2 { background: var(--tile-2); }
+    .tile-3 { background: var(--tile-3); }
+    .tile-warm { background: var(--warm-soft); }
+    .tile-danger { background: var(--danger-soft); }
+    .tile-danger .tile-title { color: var(--danger); }
+
+    /* Credits */
+    .credits-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
+    .credits-label { font-size: 12px; color: var(--ink-soft); }
+    #credits-amount { font-size: 40px; line-height: 1; margin-top: 6px; }
+    #buy-credits-link {
+      font-size: 12px; text-decoration: none; background: var(--card); color: var(--ink);
+      padding: 7px 11px; border-radius: 8px; white-space: nowrap; transition: background 0.2s;
+    }
+    #buy-credits-link:hover { background: var(--paper); }
+
+    /* ── Buttons ── */
     button {
       appearance: none;
       width: 100%;
-      height: 40px;
-      background: var(--fg);
-      color: var(--bg);
-      border: 1px solid var(--fg);
+      height: 42px;
+      background: var(--ink);
+      color: #fff;
+      border: none;
       border-radius: var(--radius);
-      font-family: 'Geist', sans-serif;
-      font-size: 13px;
+      font-family: inherit;
+      font-size: 13.5px;
       font-weight: 500;
+      letter-spacing: -0.01em;
       cursor: pointer;
-      transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
       display: flex;
       align-items: center;
       justify-content: center;
+      gap: 6px;
+      transition: background 0.25s var(--ease), box-shadow 0.25s var(--ease), transform 0.15s;
     }
-
-    button:hover:not(:disabled) {
-      background: var(--bg);
-      color: var(--fg);
-    }
-
-    button:active:not(:disabled) {
-      transform: scale(0.98);
-    }
-
-    button:disabled {
-      background: var(--accents-2);
-      border-color: var(--accents-2);
-      color: var(--accents-3);
-      cursor: not-allowed;
-    }
-
-    #status {
-      font-family: 'Geist Mono', monospace;
-      font-size: 11px;
-      color: var(--accents-4);
-      text-align: center;
-      min-height: 14px;
-      margin-top: 4px;
-    }
-
-    .divider {
-      height: 1px;
-      background: var(--accents-2);
-      margin: 20px 0;
-    }
-
-    .meta {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      font-size: 11px;
-      color: var(--accents-3);
-    }
-
-    .tag {
-      padding: 2px 6px;
-      background: var(--accents-1);
-      border: 1px solid var(--accents-2);
-      border-radius: 4px;
-      font-family: 'Geist Mono', monospace;
-    }
-
-    #backend-off {
-      font-size: 12px;
-      color: #c53030;
-      background: #fff5f5;
-      border: 1px solid #feb2b2;
-      border-radius: var(--radius);
-      padding: 10px 12px;
-      margin-bottom: 12px;
-    }
-
-    #backend-off code {
-      font-family: 'Geist Mono', monospace;
-      font-size: 11px;
-      background: rgba(0,0,0,0.06);
-      padding: 1px 4px;
-      border-radius: 3px;
-    }
-
-    #preview-section {
-      display: none;
-      margin-top: 12px;
-    }
-
-    #preview-section.visible {
-      display: block;
-    }
-
-    .preview-title {
-      font-size: 12px;
-      font-weight: 600;
-      margin-bottom: 8px;
-      color: var(--accents-4);
-    }
-
-    #preview-list {
-      max-height: 200px;
-      overflow-y: auto;
-      font-size: 11px;
-      font-family: 'Geist Mono', monospace;
-      background: var(--accents-1);
-      border: 1px solid var(--accents-2);
-      border-radius: var(--radius);
-      padding: 8px;
-      margin-bottom: 10px;
-    }
-
-    .preview-row {
-      display: flex;
-      justify-content: space-between;
-      gap: 8px;
-      padding: 4px 0;
-      border-bottom: 1px solid var(--accents-2);
-    }
-
-    .preview-row:last-child {
-      border-bottom: none;
-    }
-
-    .preview-row.editing {
-      flex-wrap: wrap;
-    }
-
-    .preview-key {
-      color: var(--accents-4);
-      flex-shrink: 0;
-      max-width: 100px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .preview-val {
-      color: var(--fg);
-      text-align: right;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      max-width: 120px;
-    }
-
-    .preview-row .edit-btn {
-      width: auto;
-      height: 24px;
-      min-width: 36px;
-      padding: 0 8px;
-      font-size: 10px;
-      flex-shrink: 0;
-    }
-
-    .preview-row input.edit-input {
-      width: 100%;
-      min-width: 0;
-      margin-top: 4px;
-      padding: 6px 8px;
-      font-size: 11px;
-      font-family: 'Geist Mono', monospace;
-      border: 1px solid var(--accents-2);
-      border-radius: 4px;
-    }
-
-    .preview-row .file-input {
-      flex: 1;
-      min-width: 0;
-      font-size: 10px;
-      font-family: 'Geist', sans-serif;
-      color: var(--accents-4);
-    }
-
-    .preview-row .file-input::file-selector-button {
-      padding: 4px 8px;
-      font-size: 10px;
-      font-family: 'Geist', sans-serif;
-      background: var(--accents-1);
-      border: 1px solid var(--accents-2);
-      border-radius: 4px;
-      cursor: pointer;
-      margin-right: 8px;
-    }
-
-    .preview-row .file-input::file-selector-button:hover {
-      background: var(--accents-2);
-    }
-
-    #undo-fill-btn {
-      display: none;
-      background: #fef3c7;
-      border-color: #f59e0b;
-      color: #92400e;
-    }
-
-    #undo-fill-btn.visible {
-      display: flex;
-    }
-
-    #undo-fill-btn:hover:not(:disabled) {
-      background: #fde68a;
-      color: #78350f;
-    }
-
-    #undo-fill-btn svg {
-      vertical-align: middle;
-    }
-
-    .preview-actions {
-      display: flex;
-      gap: 8px;
-      margin-top: 8px;
-    }
-
-    .preview-actions button {
-      flex: 1;
+    button:hover:not(:disabled) { background: var(--ink-hover); }
+    button:active:not(:disabled) { transform: scale(0.985); }
+    button:disabled { background: var(--paper-deep); color: var(--ink-mute); cursor: not-allowed; }
+    button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible {
+      outline: 2px solid var(--ink); outline-offset: 2px;
     }
 
     button.secondary {
-      background: var(--bg);
-      color: var(--fg);
-      border: 1px solid var(--accents-2);
+      background: var(--card);
+      color: var(--ink);
+      box-shadow: inset 0 0 0 1px var(--line);
     }
+    button.secondary:hover:not(:disabled) { background: var(--card); box-shadow: inset 0 0 0 1px var(--line-strong); }
 
-    button.secondary:hover:not(:disabled) {
-      background: var(--accents-1);
+    button.small { height: 32px; font-size: 12px; width: auto; padding: 0 12px; }
+    button.on-tile { background: var(--card); color: var(--ink); }
+    button.on-tile:hover:not(:disabled) { background: var(--paper); }
+
+    .link-btn {
+      background: none; border: none; height: auto; width: auto; padding: 0;
+      color: var(--ink-soft); font-size: 12px; font-weight: 400; cursor: pointer;
+      display: inline-flex; align-items: center; gap: 5px; text-decoration: none;
     }
+    .link-btn:hover:not(:disabled) { background: none; color: var(--ink); }
 
-    .action-zone.hide-main .main-action {
-      display: none;
+    /* ── Main card ── */
+    .card { background: var(--card); border-radius: 14px; padding: 14px; box-shadow: inset 0 0 0 1px var(--line); }
+    .action-zone { display: flex; flex-direction: column; }
+    .action-zone.hide-main .main-action { display: none; }
+
+    .field-label { display: block; font-size: 12px; color: var(--ink-soft); margin-bottom: 6px; }
+
+    /* Segmented controls */
+    .fill-mode, .profile-section { margin-bottom: 12px; }
+    .fill-mode-options, .profile-mode {
+      display: flex; gap: 2px; padding: 3px; background: var(--tile-3); border-radius: var(--radius);
     }
-
-    .fill-mode {
-      margin-bottom: 12px;
+    .profile-mode { margin-top: 8px; }
+    .fill-mode-options label, .profile-mode label {
+      flex: 1; margin: 0; display: flex; align-items: center; justify-content: center;
+      padding: 6px 8px; font-size: 12px; cursor: pointer; color: var(--ink);
+      border-radius: 7px; transition: background 0.25s var(--ease), color 0.25s var(--ease);
+      text-align: center;
     }
-
-    .fill-mode-label {
-      display: block;
-      font-size: 11px;
-      color: var(--accents-4);
-      margin-bottom: 6px;
+    .fill-mode-options input, .profile-mode input { position: absolute; opacity: 0; pointer-events: none; }
+    .fill-mode-options label:has(input:checked), .profile-mode label:has(input:checked) {
+      background: var(--ink); color: #fff;
     }
-
-    .fill-mode-options {
-      display: flex;
-      gap: 0;
-      border: 1px solid var(--accents-2);
-      border-radius: var(--radius);
-      overflow: hidden;
-    }
-
-    .fill-mode-options label {
-      flex: 1;
-      margin: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 8px 10px;
-      font-size: 12px;
-      cursor: pointer;
-      background: var(--bg);
-      color: var(--accents-4);
-      border-right: 1px solid var(--accents-2);
-      transition: background 0.15s, color 0.15s;
-    }
-
-    .fill-mode-options label:last-child {
-      border-right: none;
-    }
-
-    .fill-mode-options input {
-      position: absolute;
-      opacity: 0;
-      pointer-events: none;
-    }
-
-    .fill-mode-options label:has(input:checked) {
-      background: var(--fg);
-      color: var(--bg);
-      font-weight: 500;
-    }
-
-    .profile-section {
-      margin-bottom: 12px;
-    }
-
-    .profile-section .fill-mode-label {
-      margin-bottom: 6px;
-    }
-
-    .profile-section select {
-      width: 100%;
-      padding: 8px 10px;
-      font-size: 12px;
-      font-family: inherit;
-      border: 1px solid var(--accents-2);
-      border-radius: var(--radius);
-      background: var(--bg);
-      color: var(--fg);
-    }
-
-    .profile-mode {
-      margin-top: 8px;
-      display: flex;
-      gap: 0;
-      border: 1px solid var(--accents-2);
-      border-radius: var(--radius);
-      overflow: hidden;
-    }
-
-    .profile-mode label {
-      flex: 1;
-      margin: 0;
-      padding: 6px 8px;
-      font-size: 11px;
-      cursor: pointer;
-      background: var(--bg);
-      color: var(--accents-4);
-      border-right: 1px solid var(--accents-2);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-
-    .profile-mode label:last-child { border-right: none; }
-    .profile-mode input { position: absolute; opacity: 0; pointer-events: none; }
-    .profile-mode label:has(input:checked) {
-      background: var(--fg);
-      color: var(--bg);
-      font-weight: 500;
-    }
-
     .profile-section.hide-profile-mode .profile-mode { display: none; }
 
+    select {
+      width: 100%; height: 38px; padding: 0 32px 0 12px; font-size: 13px; font-family: inherit;
+      color: var(--ink); background: var(--card); border: none; border-radius: var(--radius);
+      box-shadow: inset 0 0 0 1px var(--line); appearance: none; cursor: pointer;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23646c8a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: right 12px center;
+    }
+    select:hover { box-shadow: inset 0 0 0 1px var(--line-strong); }
+
+    .profile-links { display: flex; gap: 14px; margin-top: 8px; }
     .manage-profiles-btn {
-      margin-top: 6px;
-      font-size: 11px;
-      color: var(--accents-4);
-      background: none;
-      border: none;
-      padding: 0;
-      height: auto;
-      cursor: pointer;
-      text-decoration: underline;
+      font-size: 12px; color: var(--ink-soft); background: none; border: none; padding: 0;
+      height: auto; width: auto; cursor: pointer; font-weight: 400; text-decoration: underline;
+      text-underline-offset: 3px; text-decoration-color: var(--line-strong);
     }
+    .manage-profiles-btn:hover:not(:disabled) { background: none; color: var(--ink); }
 
-    .manage-profiles-btn:hover { color: var(--fg); }
-
-    #manage-profiles-panel {
-      display: none;
-      margin-top: 12px;
-      padding-top: 12px;
-      border-top: 1px solid var(--accents-2);
-    }
-
-    #manage-profiles-panel.visible { display: block; }
-
-    .profile-list {
-      margin-bottom: 12px;
-      max-height: 120px;
-      overflow-y: auto;
-    }
-
+    #manage-profiles-panel { display: none; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+    #manage-profiles-panel.visible { display: block; animation: fadeIn 0.25s var(--ease); }
+    .profile-list { margin-bottom: 10px; max-height: 140px; overflow-y: auto; }
     .profile-list-item {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 6px 8px;
-      font-size: 12px;
-      border-radius: var(--radius);
-      margin-bottom: 4px;
-      background: var(--accents-1);
-      border: 1px solid var(--accents-2);
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      padding: 8px 10px; font-size: 12.5px; border-radius: var(--radius); margin-bottom: 6px; background: var(--tile-3);
+    }
+    .profile-list-item strong { font-weight: 500; }
+    .profile-list-item button { width: auto; height: 28px; padding: 0 9px; font-size: 11.5px; margin-left: 4px; display: inline-flex; }
+    .profile-form-actions { display: flex; gap: 8px; }
+    .profile-form-actions button { flex: 1; height: 34px; font-size: 12.5px; }
+
+    /* Fill + undo */
+    #fill { height: 44px; font-size: 14px; }
+    .fill-hint { display: flex; justify-content: center; align-items: center; gap: 4px; margin-top: 8px; font-size: 11.5px; color: var(--ink-mute); }
+    kbd {
+      display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; padding: 0 5px;
+      font-family: inherit; font-size: 11px; color: var(--ink); background: var(--card);
+      border-radius: 5px; box-shadow: inset 0 0 0 1px var(--line), inset 0 -1.5px 0 var(--line);
     }
 
-    .profile-list-item button {
-      width: auto;
-      height: 28px;
-      min-width: 28px;
-      padding: 0 8px;
-      font-size: 11px;
-      margin-left: 4px;
-    }
+    #undo-fill-btn { display: none; margin-top: 8px; background: var(--warm-soft); color: var(--ink); box-shadow: none; }
+    #undo-fill-btn.visible { display: flex; }
+    #undo-fill-btn:hover:not(:disabled) { background: var(--warm); }
 
-    .profile-form label {
-      display: block;
-      font-size: 11px;
-      color: var(--accents-4);
-      margin-bottom: 2px;
-    }
+    #status { font-size: 12px; color: var(--ink-soft); text-align: center; min-height: 16px; margin-top: 8px; line-height: 1.4; }
 
-    .profile-form input {
-      width: 100%;
-      padding: 6px 8px;
-      margin-bottom: 8px;
-      font-size: 12px;
-      border: 1px solid var(--accents-2);
-      border-radius: var(--radius);
-      box-sizing: border-box;
+    /* CV upload */
+    #cv-toggle-section { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); display: flex; align-items: center; }
+    #cv-status { font-size: 11px; color: var(--ink-mute); margin-left: 8px; }
+    #cv-section { display: none; margin-top: 10px; padding: 10px; background: var(--tile-3); border-radius: 12px; }
+    #cv-upload-area {
+      border: 1.5px dashed var(--line-strong); border-radius: var(--radius); padding: 16px 12px;
+      text-align: center; cursor: pointer; background: var(--card); transition: border-color 0.2s, background 0.2s;
     }
+    #cv-upload-area:hover { border-color: var(--ink); }
+    .upload-title { font-size: 12.5px; color: var(--ink); margin-top: 6px; }
+    .upload-sub { font-size: 11px; color: var(--ink-mute); margin-top: 2px; }
+    #cv-parsed-info { display: none; margin-top: 8px; padding: 10px; background: var(--card); border-radius: var(--radius); font-size: 12px; animation: fadeIn 0.25s var(--ease); }
+    #cv-parsed-info .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    #cv-parsed-name { font-weight: 500; }
+    #cv-clear-btn { width: auto; height: 26px; padding: 0 9px; font-size: 11px; }
+    #cv-parsed-details { color: var(--ink-mute); margin-top: 4px; font-size: 11.5px; }
+    .cv-tip { font-size: 11px; color: var(--ink-mute); margin-top: 6px; }
 
-    .profile-form-actions {
-      display: flex;
-      gap: 8px;
-      margin-top: 8px;
+    /* Preview */
+    #preview-section { display: none; }
+    #preview-section.visible { display: block; animation: fadeIn 0.25s var(--ease); }
+    .preview-title { font-family: 'Newsreader', Georgia, serif; font-weight: 300; font-size: 22px; letter-spacing: -0.02em; margin-bottom: 4px; }
+    .preview-sub { font-size: 12px; color: var(--ink-soft); margin-bottom: 10px; }
+    #preview-list { max-height: 230px; overflow-y: auto; font-size: 12px; background: var(--tile-3); border-radius: 12px; padding: 4px 10px; margin-bottom: 10px; }
+    .preview-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+    .preview-row:last-child { border-bottom: none; }
+    .preview-row.editing { flex-wrap: wrap; }
+    .preview-key { color: var(--ink-soft); flex-shrink: 0; max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .preview-val { color: var(--ink); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 130px; flex: 1; }
+    .preview-row .edit-btn { width: auto; height: 26px; min-width: 40px; padding: 0 9px; font-size: 11px; flex-shrink: 0; }
+    .preview-row input.edit-input {
+      width: 100%; min-width: 0; margin-top: 6px; height: 32px; padding: 0 10px; font-size: 12px; font-family: inherit;
+      color: var(--ink); background: var(--card); border: none; border-radius: 8px; box-shadow: inset 0 0 0 1.5px var(--ink);
     }
-
-    .profile-form-actions button { flex: 1; }
-
-    #privacy-notice {
-      font-size: 11px;
-      color: var(--accents-4);
-      background: var(--accents-1);
-      border: 1px solid var(--accents-2);
-      border-radius: var(--radius);
-      padding: 10px 12px;
-      margin-bottom: 12px;
+    .preview-row .file-input { flex: 1; min-width: 0; font-size: 11px; font-family: inherit; color: var(--ink-soft); }
+    .preview-row .file-input::file-selector-button {
+      padding: 5px 9px; font-size: 11px; font-family: inherit; color: var(--ink); background: var(--card);
+      border: none; border-radius: 6px; box-shadow: inset 0 0 0 1px var(--line); cursor: pointer; margin-right: 8px;
     }
+    .preview-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .preview-actions #confirm-fill { grid-column: 1 / -1; order: -1; height: 42px; }
+    .preview-actions button.secondary { height: 36px; font-size: 12.5px; }
 
-    #privacy-notice p {
-      margin: 0 0 8px 0;
-      line-height: 1.45;
-    }
+    /* Notices */
+    #backend-off { display: none; font-size: 12.5px; color: var(--danger); background: var(--danger-soft); border-radius: 12px; padding: 10px 12px; margin-bottom: 10px; }
+    #backend-off code { font-size: 11px; background: rgba(0,0,0,0.06); padding: 1px 4px; border-radius: 4px; }
+    #privacy-notice p { margin-bottom: 10px; font-size: 12px; }
+    .privacy-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .privacy-actions a { font-size: 12px; text-underline-offset: 3px; }
+    #privacy-got-it { width: auto; height: 30px; padding: 0 12px; font-size: 12px; }
 
-    #privacy-notice a {
-      color: var(--fg);
-      text-decoration: underline;
+    /* Account */
+    .section { margin-top: 12px; }
+    .account { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .avatar {
+      width: 30px; height: 30px; border-radius: 50%; background: var(--tile-1); color: var(--ink);
+      display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 500; flex-shrink: 0;
     }
+    #user-email { color: var(--ink-soft); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .account-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+    #dashboard-link { font-size: 12px; color: var(--ink); text-underline-offset: 3px; }
+    #logout-btn { width: auto; height: 28px; padding: 0 10px; font-size: 11.5px; }
+    #sync-status { font-size: 11px; color: var(--ink-mute); margin-top: 6px; }
+    #logged-out-view .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    #login-btn { width: auto; height: 32px; padding: 0 14px; font-size: 12px; }
 
-    #privacy-notice .privacy-actions {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-      flex-wrap: wrap;
+    /* Modals */
+    .overlay { display: none; position: fixed; inset: 0; background: rgba(15, 27, 61, 0.35); z-index: 100; overflow-y: auto; }
+    .modal { background: var(--paper); margin: 24px auto; padding: 18px; border-radius: 16px; width: 300px; animation: rise 0.3s var(--ease); }
+    .modal h3 { margin: 0 0 4px; font-family: 'Newsreader', Georgia, serif; font-weight: 300; font-size: 26px; letter-spacing: -0.02em; }
+    .modal .sub { font-size: 12px; color: var(--ink-soft); margin-bottom: 16px; }
+    .modal label { display: block; font-size: 12px; color: var(--ink); margin-bottom: 6px; }
+    .modal input {
+      width: 100%; height: 40px; padding: 0 12px; margin-bottom: 12px; font-size: 13px; font-family: inherit;
+      color: var(--ink); background: var(--card); border: none; border-radius: var(--radius);
+      box-shadow: inset 0 0 0 1px var(--line); transition: box-shadow 0.2s;
     }
+    .modal input:focus { outline: none; box-shadow: inset 0 0 0 2px var(--ink); }
+    .modal .actions { display: flex; gap: 8px; margin-top: 4px; }
+    .modal .actions button { flex: 1; }
+    .modal .switch { font-size: 12px; color: var(--ink-soft); margin-top: 14px; text-align: center; }
+    .form-error { font-size: 12px; color: var(--danger); background: var(--danger-soft); padding: 8px 10px; border-radius: 8px; margin-bottom: 10px; display: none; }
 
-    #privacy-notice .privacy-got-it {
-      font-size: 11px;
-      padding: 4px 10px;
-      height: auto;
-    }
+    /* Shortcuts */
+    #shortcuts-list { display: none; background: var(--card); border-radius: 12px; padding: 4px 12px; margin-top: 8px; box-shadow: inset 0 0 0 1px var(--line); }
+    .shortcut { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 12px; color: var(--ink-soft); }
+    .shortcut:last-of-type { border-bottom: none; }
+    .shortcut-note { font-size: 11px; color: var(--ink-mute); padding: 8px 0; border-top: 1px solid var(--line); }
+
+    .meta { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; font-size: 11px; color: var(--ink-mute); }
+    .rotate { transition: transform 0.25s var(--ease); }
+
+    /* CV results modal content */
+    #cv-results-content .cv-section { margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+    #cv-results-content .cv-section:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+    #cv-results-content .cv-section-title { font-weight: 500; color: var(--ink); margin-bottom: 6px; display: flex; align-items: center; gap: 6px; font-size: 12.5px; }
+    #cv-results-content .cv-section-title svg { color: var(--ink-mute); }
+    #cv-results-content .cv-item { color: var(--ink-soft); margin-bottom: 4px; font-size: 12px; }
+    #cv-results-content .cv-item strong { color: var(--ink); font-weight: 500; }
+    #cv-results-content .cv-job, #cv-results-content .cv-edu { background: var(--tile-3); padding: 8px 10px; border-radius: 8px; margin-bottom: 6px; font-size: 12px; }
+    #cv-results-content .cv-job-title, #cv-results-content .cv-edu-degree { font-weight: 500; color: var(--ink); }
+    #cv-results-content .cv-job-company, #cv-results-content .cv-edu-school { color: var(--ink-soft); }
+    #cv-results-content .cv-job-dates, #cv-results-content .cv-edu-dates { font-size: 11px; color: var(--ink-mute); }
+    #cv-results-content .cv-skills-list { display: flex; flex-wrap: wrap; gap: 4px; }
+    #cv-results-content .cv-skill-tag { background: var(--tile-2); padding: 3px 7px; border-radius: 6px; font-size: 11px; color: var(--ink); }
   </style>
 </head>
 <body>
   <div class="header">
     <div class="brand">
-      <div class="dot"></div>
-      <h1>Autofill.Ai</h1>
+      <svg width="28" height="28" viewBox="0 0 32 32" aria-hidden="true">
+        <rect width="32" height="32" rx="9" fill="#0f1b3d"/>
+        <rect x="7.5" y="8.5" width="17" height="3.2" rx="1.6" fill="#fff"/>
+        <rect x="7.5" y="14.4" width="12.5" height="3.2" rx="1.6" fill="#fff"/>
+        <rect x="7.5" y="20.3" width="6.5" height="3.2" rx="1.6" fill="#c9d3f8"/>
+        <rect class="caret" x="16" y="19.1" width="1.8" height="5.6" rx="0.9" fill="#c9d3f8"/>
+      </svg>
+      <h1>AutoFill AI</h1>
     </div>
-    <p>Detect fields and populate forms with precision.</p>
   </div>
 
   <!-- Credits Display (shown when logged in) -->
-  <div id="credits-display" style="display: none; margin-bottom: 12px; padding: 10px 12px; background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%); border: 1px solid #bbf7d0; border-radius: var(--radius);">
-    <div style="display: flex; justify-content: space-between; align-items: center;">
+  <div id="credits-display" class="tile tile-1" style="display: none;">
+    <div class="credits-row">
       <div>
-        <span style="font-size: 11px; color: #166534; font-weight: 500;">Available Credits</span>
-        <div style="font-size: 18px; font-weight: 600; color: #15803d;" id="credits-amount">--</div>
+        <div class="credits-label">Available credits</div>
+        <div class="serif" id="credits-amount">--</div>
       </div>
-      <a href="#" id="buy-credits-link" style="font-size: 11px; color: #166534; text-decoration: underline;">Buy more</a>
+      <a href="#" id="buy-credits-link">Buy more</a>
     </div>
   </div>
 
   <!-- Login Required Notice -->
-  <div id="login-required-notice" style="display: none; margin-bottom: 12px; padding: 12px; background: #fef2f2; border: 1px solid #fecaca; border-radius: var(--radius);">
-    <div style="font-size: 12px; color: #b91c1c; font-weight: 500; margin-bottom: 6px;">Login Required</div>
-    <p style="font-size: 11px; color: #dc2626; margin: 0 0 8px 0;">Please sign in to use AI autofill.</p>
-    <button type="button" id="login-required-btn" style="height: 32px; font-size: 11px; background: #dc2626; border-color: #dc2626; color: white;">Sign In</button>
+  <div id="login-required-notice" class="tile tile-2" style="display: none;">
+    <div class="tile-title">Sign in to start filling</div>
+    <p>Create a free account or sign in to use AI autofill.</p>
+    <button type="button" id="login-required-btn" class="small">Sign in</button>
   </div>
 
   <!-- Email Verification Required Notice -->
-  <div id="email-verification-notice" style="display: none; margin-bottom: 12px; padding: 12px; background: #fef3c7; border: 1px solid #f59e0b; border-radius: var(--radius);">
-    <div style="font-size: 12px; color: #92400e; font-weight: 500; margin-bottom: 6px;">Email Verification Required</div>
-    <p style="font-size: 11px; color: #b45309; margin: 0 0 8px 0;">Please verify your email address to use AI autofill. Check your inbox for a verification link.</p>
-    <button type="button" id="resend-verification-btn" style="height: 32px; font-size: 11px; background: #f59e0b; border-color: #f59e0b; color: white;">Resend Verification Email</button>
+  <div id="email-verification-notice" class="tile tile-warm" style="display: none;">
+    <div class="tile-title">Verify your email</div>
+    <p>Check your inbox for a verification link to unlock AI autofill.</p>
+    <button type="button" id="resend-verification-btn" class="small on-tile">Resend verification email</button>
   </div>
 
   <!-- Insufficient Credits Notice -->
-  <div id="insufficient-credits-notice" style="display: none; margin-bottom: 12px; padding: 12px; background: #fef2f2; border: 1px solid #fecaca; border-radius: var(--radius);">
-    <div style="font-size: 12px; color: #b91c1c; font-weight: 500; margin-bottom: 6px;">Insufficient Credits</div>
-    <p style="font-size: 11px; color: #dc2626; margin: 0 0 8px 0;">You need credits to use AI autofill. Purchase a pack to continue.</p>
-    <button type="button" id="buy-credits-btn" style="height: 32px; font-size: 11px; background: #dc2626; border-color: #dc2626; color: white;">Buy Credits</button>
+  <div id="insufficient-credits-notice" class="tile tile-danger" style="display: none;">
+    <div class="tile-title">You're out of credits</div>
+    <p>Top up to keep using AI autofill. Credits never expire.</p>
+    <button type="button" id="buy-credits-btn" class="small">Buy credits</button>
   </div>
 
-  <div id="backend-off" style="display: none;">Cannot reach server.</div>
+  <div id="backend-off">Can't reach the server. Please try again shortly.</div>
 
-  <div id="privacy-notice" style="display: none;">
+  <div id="privacy-notice" class="tile tile-3" style="display: none;">
     <p>Form labels and page context are sent to an AI service to generate values. No data is stored by us.</p>
     <div class="privacy-actions">
       <span>
-        <a href="#" id="privacy-policy-link" target="_blank" rel="noopener">Privacy / API policy</a>
+        <a href="#" id="privacy-policy-link" target="_blank" rel="noopener">Privacy policy</a>
       </span>
       <button type="button" class="secondary privacy-got-it" id="privacy-got-it">Got it</button>
     </div>
   </div>
 
-  <div class="action-zone" id="action-zone">
-    <div class="main-action">
-      <div class="fill-mode">
-        <span class="fill-mode-label">Fill mode</span>
-        <div class="fill-mode-options">
-          <label>
-            <input type="radio" name="fillMode" value="all" checked>
-            <span>Fill all</span>
-          </label>
-          <label>
-            <input type="radio" name="fillMode" value="empty">
-            <span>Fill only empty</span>
-          </label>
-        </div>
-      </div>
-      <div class="profile-section" id="profile-section">
-        <span class="fill-mode-label">Profile</span>
-        <select id="profile-select">
-          <option value="">None (AI only)</option>
-        </select>
-        <div class="profile-mode" id="profile-mode">
-          <label>
-            <input type="radio" name="profileMode" value="only" checked>
-            <span>Profile only</span>
-          </label>
-          <label>
-            <input type="radio" name="profileMode" value="plus_ai">
-            <span>Profile + AI for rest</span>
-          </label>
-        </div>
-        <button type="button" class="manage-profiles-btn" id="manage-profiles-btn">Manage profiles</button>
-        <button type="button" class="manage-profiles-btn" id="sync-profiles-btn" style="margin-left: 8px;">Sync to cloud</button>
-        <div id="manage-profiles-panel">
-          <p style="font-size: 11px; color: var(--accents-4); margin-bottom: 8px;">
-            Profiles are saved from form fills. Use "Save as profile" after filling a form.
-          </p>
-          <div class="profile-list" id="profile-list"></div>
-          <div class="profile-form-actions" style="margin-top: 8px;">
-            <button type="button" class="secondary" id="profile-cancel">Close</button>
+  <div class="card">
+    <div class="action-zone" id="action-zone">
+      <div class="main-action">
+        <div class="fill-mode">
+          <span class="field-label">Fill mode</span>
+          <div class="fill-mode-options">
+            <label>
+              <input type="radio" name="fillMode" value="all" checked>
+              <span>Fill all</span>
+            </label>
+            <label>
+              <input type="radio" name="fillMode" value="empty">
+              <span>Only empty</span>
+            </label>
           </div>
         </div>
-      </div>
-      <button id="fill">Execute Autofill</button>
-      <button id="undo-fill-btn" class="secondary" style="margin-top: 8px;">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 6px;">
-          <path d="M3 10h10a5 5 0 0 1 5 5v2M3 10l4-4M3 10l4 4"/>
-        </svg>
-        Undo Last Fill
-      </button>
-      
-      <div id="status"></div>
-      
-      <!-- CV Upload Toggle -->
-      <div id="cv-toggle-section" style="margin-top: 12px;">
-        <button type="button" id="cv-toggle-btn" style="background: none; border: none; padding: 0; font-size: 11px; color: var(--accents-4); cursor: pointer; display: flex; align-items: center; gap: 4px;">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-            <polyline points="14 2 14 8 20 8"/>
+
+        <div class="profile-section" id="profile-section">
+          <span class="field-label">Profile</span>
+          <select id="profile-select">
+            <option value="">None (AI only)</option>
+          </select>
+          <div class="profile-mode" id="profile-mode">
+            <label>
+              <input type="radio" name="profileMode" value="only" checked>
+              <span>Profile only</span>
+            </label>
+            <label>
+              <input type="radio" name="profileMode" value="plus_ai">
+              <span>Profile + AI</span>
+            </label>
+          </div>
+          <div class="profile-links">
+            <button type="button" class="manage-profiles-btn" id="manage-profiles-btn">Manage profiles</button>
+            <button type="button" class="manage-profiles-btn" id="sync-profiles-btn">Sync to cloud</button>
+          </div>
+          <div id="manage-profiles-panel">
+            <p style="margin-bottom: 10px; font-size: 12px;">
+              Profiles are saved from form fills. Use "Save as profile" after filling a form.
+            </p>
+            <div class="profile-list" id="profile-list"></div>
+            <div class="profile-form-actions">
+              <button type="button" class="secondary" id="profile-cancel">Close</button>
+            </div>
+          </div>
+        </div>
+
+        <button id="fill">Fill this form</button>
+        <div class="fill-hint" id="fill-hint">or press <kbd>⌃</kbd><kbd>⇧</kbd><kbd>F</kbd></div>
+        <button id="undo-fill-btn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3 10h10a5 5 0 0 1 5 5v2M3 10l4-4M3 10l4 4"/>
           </svg>
-          <span id="cv-toggle-text">Upload CV / Resume</span>
-          <svg id="cv-toggle-arrow" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="transition: transform 0.2s;">
-            <polyline points="6 9 12 15 18 9"/>
-          </svg>
+          Undo last fill
         </button>
-        <span id="cv-status" style="font-size: 10px; color: var(--accents-3); margin-left: 8px;"></span>
-      </div>
-      
-      <!-- CV Upload Section (hidden by default) -->
-      <div id="cv-section" style="display: none; margin-top: 8px; padding: 10px; background: var(--accents-1); border-radius: var(--radius);">
-        <div id="cv-upload-area" style="border: 1px dashed var(--accents-2); border-radius: var(--radius); padding: 12px; text-align: center; cursor: pointer; transition: all 0.15s; background: var(--bg);">
-          <input type="file" id="cv-file-input" accept=".pdf,.doc,.docx,.txt" style="display: none;">
-          <div style="font-size: 11px; color: var(--accents-4);">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-bottom: 4px;">
+
+        <div id="status"></div>
+
+        <!-- CV Upload Toggle -->
+        <div id="cv-toggle-section">
+          <button type="button" id="cv-toggle-btn" class="link-btn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+              <polyline points="14 2 14 8 20 8"/>
+            </svg>
+            <span id="cv-toggle-text">Upload CV / Resume</span>
+            <svg id="cv-toggle-arrow" class="rotate" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <polyline points="6 9 12 15 18 9"/>
+            </svg>
+          </button>
+          <span id="cv-status"></span>
+        </div>
+
+        <!-- CV Upload Section (hidden by default) -->
+        <div id="cv-section">
+          <div id="cv-upload-area">
+            <input type="file" id="cv-file-input" accept=".pdf,.doc,.docx,.txt" style="display: none;">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0f1b3d" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
               <polyline points="17 8 12 3 7 8"/>
               <line x1="12" y1="3" x2="12" y2="15"/>
             </svg>
-            <div>Drop your CV here or click to upload</div>
-            <div style="font-size: 9px; color: var(--accents-3); margin-top: 2px;">PDF, DOC, DOCX, or TXT</div>
+            <div class="upload-title">Drop your CV here or click to upload</div>
+            <div class="upload-sub">PDF, DOC, DOCX or TXT</div>
           </div>
-        </div>
-        <div id="cv-parsed-info" style="display: none; margin-top: 8px; padding: 8px; background: var(--bg); border-radius: var(--radius); font-size: 10px;">
-          <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span id="cv-parsed-name" style="font-weight: 500;"></span>
-            <button type="button" id="cv-clear-btn" class="secondary" style="width: auto; height: 20px; padding: 0 6px; font-size: 9px;">Clear All</button>
+          <div id="cv-parsed-info">
+            <div class="row">
+              <span id="cv-parsed-name"></span>
+              <button type="button" id="cv-clear-btn" class="secondary">Clear all</button>
+            </div>
+            <div id="cv-parsed-details"></div>
+            <div class="cv-tip">Tip: choose your CV from the Profile menu above to use it.</div>
           </div>
-          <div id="cv-parsed-details" style="color: var(--accents-3); margin-top: 4px;"></div>
-          <div style="font-size: 9px; color: var(--accents-3); margin-top: 6px;">Tip: Select a CV from the profiles dropdown above to use it</div>
         </div>
       </div>
-      
-    </div>
-    <div id="preview-section" class="preview-section">
-      <div class="preview-title">Preview before filling</div>
-      <div id="preview-list"></div>
-      <div class="preview-actions">
-        <button id="cancel-preview" class="secondary">Cancel</button>
-        <button type="button" id="save-as-profile-btn" class="secondary">Save as profile</button>
-        <button id="confirm-fill">Fill form</button>
+
+      <div id="preview-section" class="preview-section">
+        <div class="preview-title">Review before filling</div>
+        <div class="preview-sub">Check the values, edit anything, then fill.</div>
+        <div id="preview-list"></div>
+        <div class="preview-actions">
+          <button id="confirm-fill">Fill form</button>
+          <button id="cancel-preview" class="secondary">Cancel</button>
+          <button type="button" id="save-as-profile-btn" class="secondary">Save as profile</button>
+        </div>
       </div>
     </div>
   </div>
 
-  <div class="divider"></div>
-
   <!-- Auth Section -->
-  <div id="auth-section">
+  <div id="auth-section" class="section card">
     <div id="logged-out-view">
-      <p style="font-size: 11px; color: var(--accents-4); margin-bottom: 8px;">Sign in to use Autofill.AI</p>
-      <button type="button" id="login-btn" class="secondary" style="height: 32px; font-size: 11px;">Sign In</button>
+      <div class="row">
+        <p>Sign in to use AutoFill AI</p>
+        <button type="button" id="login-btn">Sign in</button>
+      </div>
     </div>
     <div id="logged-in-view" style="display: none;">
-      <div style="display: flex; align-items: center; justify-content: space-between; font-size: 11px;">
-        <span id="user-email" style="color: var(--accents-4);"></span>
-        <div style="display: flex; gap: 6px; align-items: center;">
-          <a href="#" id="dashboard-link" style="font-size: 10px; color: var(--accents-4);">Dashboard</a>
-          <button type="button" id="logout-btn" class="secondary" style="width: auto; height: 24px; padding: 0 8px; font-size: 10px;">Logout</button>
+      <div class="account">
+        <div style="display: flex; align-items: center; gap: 9px; min-width: 0;">
+          <span class="avatar" aria-hidden="true">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>
+          </span>
+          <span id="user-email"></span>
+        </div>
+        <div class="account-actions">
+          <a href="#" id="dashboard-link">Dashboard</a>
+          <button type="button" id="logout-btn" class="secondary">Log out</button>
         </div>
       </div>
-      <div id="sync-status" style="font-size: 10px; color: var(--accents-3); margin-top: 4px;"></div>
+      <div id="sync-status"></div>
     </div>
   </div>
 
   <!-- Login Modal -->
-  <div id="login-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 100;">
-    <div style="background: var(--bg); margin: 40px auto; padding: 20px; border-radius: var(--radius); width: 260px;">
-      <h3 style="margin: 0 0 16px; font-size: 14px;">Sign In</h3>
+  <div id="login-modal" class="overlay">
+    <div class="modal">
       <form id="login-form">
-        <label style="display: block; font-size: 11px; color: var(--accents-4); margin-bottom: 4px;">Email</label>
-        <input type="email" id="login-email" required style="width: 100%; padding: 8px; margin-bottom: 12px; border: 1px solid var(--accents-2); border-radius: var(--radius); font-size: 12px;">
-        <label style="display: block; font-size: 11px; color: var(--accents-4); margin-bottom: 4px;">Password</label>
-        <input type="password" id="login-password" required style="width: 100%; padding: 8px; margin-bottom: 12px; border: 1px solid var(--accents-2); border-radius: var(--radius); font-size: 12px;">
-        <div id="login-error" style="font-size: 11px; color: #c53030; margin-bottom: 8px; display: none;"></div>
-        <div style="display: flex; gap: 8px;">
-          <button type="submit" id="login-submit" style="flex: 1;">Sign In</button>
-          <button type="button" id="login-cancel" class="secondary" style="flex: 1;">Cancel</button>
+        <h3>Welcome back</h3>
+        <div class="sub">Sign in to your AutoFill AI account.</div>
+        <label for="login-email">Email</label>
+        <input type="email" id="login-email" placeholder="name@company.com" required>
+        <label for="login-password">Password</label>
+        <input type="password" id="login-password" placeholder="••••••••" required>
+        <div id="login-error" class="form-error"></div>
+        <div class="actions">
+          <button type="button" id="login-cancel" class="secondary">Cancel</button>
+          <button type="submit" id="login-submit">Sign in</button>
         </div>
-        <p style="font-size: 10px; color: var(--accents-3); margin-top: 12px; text-align: center;">
-          Don't have an account? <a href="#" id="show-register" style="color: var(--fg);">Register</a>
-        </p>
+        <p class="switch">Don't have an account? <a href="#" id="show-register">Create one</a></p>
       </form>
       <form id="register-form" style="display: none;">
-        <label style="display: block; font-size: 11px; color: var(--accents-4); margin-bottom: 4px;">Name</label>
-        <input type="text" id="register-name" style="width: 100%; padding: 8px; margin-bottom: 12px; border: 1px solid var(--accents-2); border-radius: var(--radius); font-size: 12px;">
-        <label style="display: block; font-size: 11px; color: var(--accents-4); margin-bottom: 4px;">Email</label>
-        <input type="email" id="register-email" required style="width: 100%; padding: 8px; margin-bottom: 12px; border: 1px solid var(--accents-2); border-radius: var(--radius); font-size: 12px;">
-        <label style="display: block; font-size: 11px; color: var(--accents-4); margin-bottom: 4px;">Password</label>
-        <input type="password" id="register-password" required style="width: 100%; padding: 8px; margin-bottom: 12px; border: 1px solid var(--accents-2); border-radius: var(--radius); font-size: 12px;">
-        <div id="register-error" style="font-size: 11px; color: #c53030; margin-bottom: 8px; display: none;"></div>
-        <div style="display: flex; gap: 8px;">
-          <button type="submit" id="register-submit" style="flex: 1;">Register</button>
-          <button type="button" id="register-cancel" class="secondary" style="flex: 1;">Cancel</button>
+        <h3>Create account</h3>
+        <div class="sub">Start with free credits. No card needed.</div>
+        <label for="register-name">Name</label>
+        <input type="text" id="register-name" placeholder="Jane Doe">
+        <label for="register-email">Email</label>
+        <input type="email" id="register-email" placeholder="name@company.com" required>
+        <label for="register-password">Password</label>
+        <input type="password" id="register-password" placeholder="••••••••" required>
+        <div id="register-error" class="form-error"></div>
+        <div class="actions">
+          <button type="button" id="register-cancel" class="secondary">Cancel</button>
+          <button type="submit" id="register-submit">Create account</button>
         </div>
-        <p style="font-size: 10px; color: var(--accents-3); margin-top: 12px; text-align: center;">
-          Already have an account? <a href="#" id="show-login" style="color: var(--fg);">Sign In</a>
-        </p>
+        <p class="switch">Already have an account? <a href="#" id="show-login">Sign in</a></p>
       </form>
     </div>
   </div>
 
-  <div class="divider"></div>
-
   <!-- Keyboard Shortcuts Help -->
-  <div id="shortcuts-section">
-    <button type="button" id="shortcuts-toggle" style="background: none; border: none; padding: 0; font-size: 11px; color: var(--accents-4); cursor: pointer; display: flex; align-items: center; gap: 4px; margin-bottom: 8px;">
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+  <div id="shortcuts-section" class="section">
+    <button type="button" id="shortcuts-toggle" class="link-btn">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
         <rect x="2" y="4" width="20" height="16" rx="2"/>
         <path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h8M6 16h.01M18 16h.01"/>
       </svg>
-      <span>Keyboard Shortcuts</span>
-      <svg id="shortcuts-arrow" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="transition: transform 0.2s;">
+      <span>Keyboard shortcuts</span>
+      <svg id="shortcuts-arrow" class="rotate" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
         <polyline points="6 9 12 15 18 9"/>
       </svg>
     </button>
-    <div id="shortcuts-list" style="display: none; font-size: 10px; background: var(--accents-1); border-radius: var(--radius); padding: 10px; margin-bottom: 12px;">
-      <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
-        <span style="color: var(--accents-4);">Open Popup</span>
-        <kbd style="background: var(--bg); border: 1px solid var(--accents-2); border-radius: 3px; padding: 1px 5px; font-family: 'Geist Mono', monospace; font-size: 9px;">Alt+Shift+Y</kbd>
-      </div>
-      <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
-        <span style="color: var(--accents-4);">Quick Autofill (no popup)</span>
-        <kbd style="background: var(--bg); border: 1px solid var(--accents-2); border-radius: 3px; padding: 1px 5px; font-family: 'Geist Mono', monospace; font-size: 9px;">Ctrl+Shift+F</kbd>
-      </div>
-      <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
-        <span style="color: var(--accents-4);">Undo Last Fill</span>
-        <kbd style="background: var(--bg); border: 1px solid var(--accents-2); border-radius: 3px; padding: 1px 5px; font-family: 'Geist Mono', monospace; font-size: 9px;">Ctrl+Shift+Z</kbd>
-      </div>
-      <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
-        <span style="color: var(--accents-4);">Confirm Fill</span>
-        <kbd style="background: var(--bg); border: 1px solid var(--accents-2); border-radius: 3px; padding: 1px 5px; font-family: 'Geist Mono', monospace; font-size: 9px;">Enter</kbd>
-      </div>
-      <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
-        <span style="color: var(--accents-4);">Cancel / Close</span>
-        <kbd style="background: var(--bg); border: 1px solid var(--accents-2); border-radius: 3px; padding: 1px 5px; font-family: 'Geist Mono', monospace; font-size: 9px;">Esc</kbd>
-      </div>
-      <div style="display: flex; justify-content: space-between;">
-        <span style="color: var(--accents-4);">Quick Profile (1-9, 0=none)</span>
-        <kbd style="background: var(--bg); border: 1px solid var(--accents-2); border-radius: 3px; padding: 1px 5px; font-family: 'Geist Mono', monospace; font-size: 9px;">1-9</kbd>
-      </div>
-      <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--accents-2); font-size: 9px; color: var(--accents-3);">
-        Customize shortcuts: chrome://extensions/shortcuts
-      </div>
+    <div id="shortcuts-list" style="display: none;">
+      <div class="shortcut"><span>Open popup</span><kbd>Alt+Shift+Y</kbd></div>
+      <div class="shortcut"><span>Quick fill (no popup)</span><kbd class="kbd-fill">Ctrl+Shift+F</kbd></div>
+      <div class="shortcut"><span>Undo last fill</span><kbd class="kbd-undo">Ctrl+Shift+Z</kbd></div>
+      <div class="shortcut"><span>Confirm fill</span><kbd>Enter</kbd></div>
+      <div class="shortcut"><span>Cancel or close</span><kbd>Esc</kbd></div>
+      <div class="shortcut"><span>Switch profile (0 = none)</span><kbd>1–9</kbd></div>
+      <div class="shortcut-note">Change shortcuts at chrome://extensions/shortcuts or edge://extensions/shortcuts</div>
     </div>
   </div>
 
   <div class="meta">
-    <span>v0.1.0</span>
+    <span>AutoFill AI</span>
+    <span>v1.0.1</span>
   </div>
 
   <!-- CV Parsed Results Modal -->
-  <div id="cv-results-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 100; overflow-y: auto;">
-    <div style="background: var(--bg); margin: 20px auto; padding: 16px; border-radius: var(--radius); width: 280px; max-height: calc(100vh - 40px); overflow-y: auto;">
+  <div id="cv-results-modal" class="overlay">
+    <div class="modal" style="max-height: calc(100vh - 48px); overflow-y: auto;">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-        <h3 style="margin: 0; font-size: 14px;">CV Parsed Successfully</h3>
-        <button type="button" id="cv-results-close" style="background: none; border: none; cursor: pointer; padding: 4px; color: var(--accents-4);">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <h3 style="margin: 0;">Resume parsed</h3>
+        <button type="button" id="cv-results-close" class="link-btn" aria-label="Close">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
             <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
           </svg>
         </button>
       </div>
-      <div id="cv-results-content" style="font-size: 11px;"></div>
-      <button type="button" id="cv-results-done" style="width: 100%; margin-top: 12px;">Done</button>
+      <div id="cv-results-content" style="font-size: 12px;"></div>
+      <button type="button" id="cv-results-done" style="margin-top: 14px;">Done</button>
     </div>
   </div>
-
-  <style>
-    #cv-results-content .cv-section {
-      margin-bottom: 12px;
-      padding-bottom: 12px;
-      border-bottom: 1px solid var(--accents-2);
-    }
-    #cv-results-content .cv-section:last-child {
-      border-bottom: none;
-      margin-bottom: 0;
-      padding-bottom: 0;
-    }
-    #cv-results-content .cv-section-title {
-      font-weight: 600;
-      color: var(--fg);
-      margin-bottom: 6px;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-    #cv-results-content .cv-section-title svg {
-      color: var(--accents-3);
-    }
-    #cv-results-content .cv-item {
-      color: var(--accents-4);
-      margin-bottom: 4px;
-      padding-left: 4px;
-    }
-    #cv-results-content .cv-item strong {
-      color: var(--fg);
-      font-weight: 500;
-    }
-    #cv-results-content .cv-job, #cv-results-content .cv-edu {
-      background: var(--accents-1);
-      padding: 8px;
-      border-radius: 4px;
-      margin-bottom: 6px;
-    }
-    #cv-results-content .cv-job-title, #cv-results-content .cv-edu-degree {
-      font-weight: 500;
-      color: var(--fg);
-    }
-    #cv-results-content .cv-job-company, #cv-results-content .cv-edu-school {
-      color: var(--accents-4);
-    }
-    #cv-results-content .cv-job-dates, #cv-results-content .cv-edu-dates {
-      font-size: 10px;
-      color: var(--accents-3);
-    }
-    #cv-results-content .cv-skills-list {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 4px;
-    }
-    #cv-results-content .cv-skill-tag {
-      background: var(--accents-1);
-      padding: 2px 6px;
-      border-radius: 3px;
-      font-size: 10px;
-      color: var(--accents-4);
-    }
-  </style>
 
   <script src="crypto.js"></script>
   <script src="popup.js"></script>

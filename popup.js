@@ -395,7 +395,7 @@ function cancelPreview() {
   const status = document.getElementById("status");
   status.innerText = "";
   fillBtn.disabled = false;
-  fillBtn.innerText = "Execute Autofill";
+  fillBtn.innerText = "Fill this form";
 }
 
 function fileToBase64(file) {
@@ -719,7 +719,7 @@ fillBtn.onclick = async () => {
 
   // Check if user is logged in
   if (!authState.accessToken) {
-    status.innerText = "Please sign in to use Autofill.AI";
+    status.innerText = "Please sign in to use AutoFill AI";
     loginModal.style.display = "block";
     loginForm.style.display = "block";
     registerForm.style.display = "none";
@@ -763,7 +763,7 @@ fillBtn.onclick = async () => {
     if (!fields || fields.length === 0) {
       status.innerText = "No form fields found!";
       fillBtn.disabled = false;
-      fillBtn.innerText = "Execute Autofill";
+      fillBtn.innerText = "Fill this form";
       return;
     }
 
@@ -777,7 +777,7 @@ fillBtn.onclick = async () => {
       if (Object.keys(values).length === 0) {
         status.innerText = "No form fields match this profile. Try \"Profile + AI for rest\" or add more profile fields.";
         fillBtn.disabled = false;
-        fillBtn.innerText = "Execute Autofill";
+        fillBtn.innerText = "Fill this form";
         return;
       }
       showPreview(fields, values, tab.id);
@@ -840,7 +840,7 @@ fillBtn.onclick = async () => {
   } catch (error) {
     status.innerText = "Error: " + error.message;
     fillBtn.disabled = false;
-    fillBtn.innerText = "Execute Autofill";
+    fillBtn.innerText = "Fill this form";
   }
 };
 
@@ -2436,3 +2436,20 @@ shortcutsToggle.addEventListener("click", () => {
   shortcutsList.style.display = isVisible ? "none" : "block";
   shortcutsArrow.style.transform = isVisible ? "" : "rotate(180deg)";
 });
+
+// Show the right shortcut keys for this platform (manifest: MacCtrl on macOS, Alt elsewhere)
+(function showPlatformShortcuts() {
+  const isMac = /Mac/i.test(navigator.platform || navigator.userAgent);
+  const hint = document.getElementById("fill-hint");
+  if (hint) {
+    hint.innerHTML = isMac
+      ? "or press <kbd>⌃</kbd><kbd>⇧</kbd><kbd>F</kbd>"
+      : "or press <kbd>Alt</kbd><kbd>Shift</kbd><kbd>F</kbd>";
+  }
+  document.querySelectorAll(".kbd-fill").forEach((el) => {
+    el.textContent = isMac ? "Ctrl+Shift+F" : "Alt+Shift+F";
+  });
+  document.querySelectorAll(".kbd-undo").forEach((el) => {
+    el.textContent = isMac ? "Ctrl+Shift+Z" : "Alt+Shift+Z";
+  });
+})();
